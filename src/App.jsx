@@ -1,16 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
 
 /* ---------------------------------------------------------
    TOFFEE COUNCIL — ระบบเข้าเวรสภา
    Theme: black / gold / neon yellow
-   Storage: shared persistent storage (window.storage)
+   Storage: Supabase (PostgreSQL) — ข้อมูลซิงค์กันทุกเครื่องแบบเรียลไทม์
 --------------------------------------------------------- */
 
 const DEFAULT_ADMIN_PASSWORD = "council2026";
 
-function uid() {
-  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-}
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
 
 function pad(n) {
   return String(n).padStart(2, "0");
@@ -57,24 +59,59 @@ function todayKeyBangkok() {
   return dateKeyBangkok(new Date().toISOString());
 }
 
-/* ---------------- storage helpers ---------------- */
+/* ---------------- supabase data helpers ---------------- */
 
-async function storageGet(key, fallback) {
-  try {
-    const res = await window.storage.get(key, true);
-    if (!res || res.value === undefined || res.value === null) return fallback;
-    return JSON.parse(res.value);
-  } catch (e) {
-    return fallback;
-  }
+async function fetchMembers() {
+  const { data, error } = await supabase
+    .from("members")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) { console.error("fetchMembers error", error); return []; }
+  return data || [];
 }
 
-async function storageSet(key, value) {
-  try {
-    await window.storage.set(key, JSON.stringify(value), true);
-  } catch (e) {
-    console.error("storage set failed", key, e);
-  }
+async function fetchSessions() {
+  const { data, error } = await supabase
+    .from("sessions")
+    .select("*")
+    .order("clock_in", { ascending: false });
+  if (error) { console.error("fetchSessions error", error); return []; }
+  return data || [];
+}
+
+async function fetchAdminPassword() {
+  const { data, error } = await supabase
+    .from("admin_config")
+    .select("password")
+    .eq("id", 1)
+    .maybeSingle();
+  if (error || !data) { console.error("fetchAdminPassword error", error); return DEFAULT_ADMIN_PASSWORD; }
+  return data.password || DEFAULT_ADMIN_PASSWORD;
+}
+
+async function insertMember(member) {
+  const { error } = await supabase.from("members").insert([member]);
+  if (error) throw error;
+}
+
+async function updateMemberRow(id, patch) {
+  const { error } = await supabase.from("members").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+async function insertSession(session) {
+  const { error } = await supabase.from("sessions").insert([session]);
+  if (error) throw error;
+}
+
+async function updateSessionRow(id, patch) {
+  const { error } = await supabase.from("sessions").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+async function upsertAdminPassword(password) {
+  const { error } = await supabase.from("admin_config").upsert({ id: 1, password });
+  if (error) throw error;
 }
 
 /* ---------------- shared style bits ---------------- */
@@ -299,48 +336,70 @@ export default function ToffeeCouncil() {
   const [now, setNow] = useState(Date.now());
   const busyRef = useRef(false);
 
-  const refresh = useCallback(async () => {
+  const refreshMembers = useCallback(async () => {
+    setMembers(await fetchMembers());
+  }, []);
+  const refreshSessions = useCallback(async () => {
+    setSessions(await fetchSessions());
+  }, []);
+
+  const refreshAll = useCallback(async () => {
     if (busyRef.current) return;
-    const [m, s, a] = await Promise.all([
-      storageGet("members", []),
-      storageGet("sessions", []),
-      storageGet("admin-config", { password: DEFAULT_ADMIN_PASSWORD }),
-    ]);
+    const [m, s, pw] = await Promise.all([fetchMembers(), fetchSessions(), fetchAdminPassword()]);
     setMembers(m);
     setSessions(s);
-    setAdminPassword(a.password || DEFAULT_ADMIN_PASSWORD);
+    setAdminPassword(pw);
     setLoaded(true);
   }, []);
 
   useEffect(() => {
-    refresh();
-    const poll = setInterval(refresh, 6000);
+    refreshAll();
+
+    // ซิงค์ข้อมูลแบบเรียลไทม์: พอมีใครแก้ข้อมูลในตาราง ทุกเครื่องที่เปิดเว็บอยู่จะดึงข้อมูลใหม่ทันที
+    const channel = supabase
+      .channel("council-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "members" }, refreshMembers)
+      .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, refreshSessions)
+      .subscribe();
+
+    // ตัวสำรองเผื่อ realtime หลุดการเชื่อมต่อชั่วคราว
+    const poll = setInterval(refreshAll, 15000);
     const tick = setInterval(() => setNow(Date.now()), 1000);
+
     return () => {
+      supabase.removeChannel(channel);
       clearInterval(poll);
       clearInterval(tick);
     };
-  }, [refresh]);
+  }, [refreshAll, refreshMembers, refreshSessions]);
 
-  const persistMembers = async (next) => {
-    setMembers(next);
-    await storageSet("members", next);
+  const addMember = async (member) => {
+    await insertMember(member);
+    await refreshMembers();
   };
-  const persistSessions = async (next) => {
-    setSessions(next);
-    await storageSet("sessions", next);
+  const updateMember = async (id, patch) => {
+    await updateMemberRow(id, patch);
+    await refreshMembers();
+  };
+  const addSession = async (session) => {
+    await insertSession(session);
+    await refreshSessions();
+  };
+  const updateSession = async (id, patch) => {
+    await updateSessionRow(id, patch);
+    await refreshSessions();
   };
   const persistAdminPassword = async (pw) => {
+    await upsertAdminPassword(pw);
     setAdminPassword(pw);
-    await storageSet("admin-config", { password: pw });
   };
 
-  const activeSessions = sessions.filter((s) => !s.clockOut);
+  const activeSessions = sessions.filter((s) => !s.clock_out);
 
   const todaysSeconds = sessions.reduce((sum, s) => {
-    if (dateKeyBangkok(s.clockIn) !== todayKeyBangkok()) return sum;
-    if (s.clockOut) return sum + s.durationSeconds;
-    return sum + (now - new Date(s.clockIn).getTime()) / 1000;
+    if (dateKeyBangkok(s.clock_in) !== todayKeyBangkok()) return sum;
+    if (s.clock_out) return sum + s.duration_seconds;
+    return sum + (now - new Date(s.clock_in).getTime()) / 1000;
   }, 0);
 
   if (!loaded) {
@@ -370,15 +429,17 @@ export default function ToffeeCouncil() {
             sessions={sessions}
             activeSessions={activeSessions}
             now={now}
-            persistSessions={persistSessions}
+            addSession={addSession}
+            updateSession={updateSession}
           />
         ) : (
           <AdminView
             members={members}
             sessions={sessions}
             adminPassword={adminPassword}
-            persistMembers={persistMembers}
-            persistSessions={persistSessions}
+            addMember={addMember}
+            updateMember={updateMember}
+            updateSession={updateSession}
             persistAdminPassword={persistAdminPassword}
             now={now}
           />
@@ -455,7 +516,7 @@ function Header({ view, setView, onDutyCount, todaysSeconds }) {
 
 /* ---------------- home / member view ---------------- */
 
-function HomeView({ members, sessions, activeSessions, now, persistSessions }) {
+function HomeView({ members, sessions, activeSessions, now, addSession, updateSession }) {
   const activeMembers = members.filter((m) => m.status === "active");
   const [selectedId, setSelectedId] = useState("");
   const [pin, setPin] = useState("");
@@ -467,29 +528,28 @@ function HomeView({ members, sessions, activeSessions, now, persistSessions }) {
   }, [selectedId]);
 
   const selectedMember = activeMembers.find((m) => m.id === selectedId);
-  const mySession = selectedMember ? activeSessions.find((s) => s.memberId === selectedMember.id) : null;
+  const mySession = selectedMember ? activeSessions.find((s) => s.member_id === selectedMember.id) : null;
 
   const handleClockIn = async () => {
     setError("");
     if (!selectedMember) { setError("กรุณาเลือกชื่อของคุณ"); return; }
     if (!pin) { setError("กรุณากรอกรหัสสมาชิก"); return; }
     if (selectedMember.pin !== pin) { setError("รหัสสมาชิกไม่ถูกต้อง"); return; }
-    if (activeSessions.some((s) => s.memberId === selectedMember.id)) {
+    if (activeSessions.some((s) => s.member_id === selectedMember.id)) {
       setError("คุณกำลังเข้าเวรอยู่แล้ว");
       return;
     }
     setBusy(true);
-    const session = {
-      id: uid(),
-      memberId: selectedMember.id,
-      memberName: selectedMember.name,
-      clockIn: new Date().toISOString(),
-      clockOut: null,
-      durationSeconds: null,
-      endedBy: null,
-    };
-    await persistSessions([session, ...sessions]);
-    setPin("");
+    try {
+      await addSession({
+        member_id: selectedMember.id,
+        member_name: selectedMember.name,
+        clock_in: new Date().toISOString(),
+      });
+      setPin("");
+    } catch (e) {
+      setError("บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง");
+    }
     setBusy(false);
   };
 
@@ -499,13 +559,14 @@ function HomeView({ members, sessions, activeSessions, now, persistSessions }) {
     if (!pin) { setError("กรุณากรอกรหัสสมาชิกเพื่อออกเวร"); return; }
     if (selectedMember.pin !== pin) { setError("รหัสสมาชิกไม่ถูกต้อง"); return; }
     setBusy(true);
-    const clockOut = new Date().toISOString();
-    const durationSeconds = Math.floor((new Date(clockOut) - new Date(mySession.clockIn)) / 1000);
-    const next = sessions.map((s) =>
-      s.id === mySession.id ? { ...s, clockOut, durationSeconds, endedBy: "member" } : s
-    );
-    await persistSessions(next);
-    setPin("");
+    const clock_out = new Date().toISOString();
+    const duration_seconds = Math.floor((new Date(clock_out) - new Date(mySession.clock_in)) / 1000);
+    try {
+      await updateSession(mySession.id, { clock_out, duration_seconds, ended_by: "member" });
+      setPin("");
+    } catch (e) {
+      setError("บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง");
+    }
     setBusy(false);
   };
 
@@ -520,13 +581,13 @@ function HomeView({ members, sessions, activeSessions, now, persistSessions }) {
             </div>
             <h2 style={{ margin: "0 0 4px", fontSize: 26, color: "#fff8d6" }}>{selectedMember.name}</h2>
             <p style={{ color: "#9c8f66", margin: "0 0 18px", fontSize: 13.5 }}>
-              เริ่มเวลา {timeLabelBangkok(mySession.clockIn)}
+              เริ่มเวลา {timeLabelBangkok(mySession.clock_in)}
             </p>
             <div
               className="tc-mono tc-glow-text"
               style={{ fontSize: "clamp(38px, 9vw, 58px)", fontWeight: 700, color: "#ffe600", letterSpacing: "0.04em" }}
             >
-              {formatClock((now - new Date(mySession.clockIn).getTime()) / 1000)}
+              {formatClock((now - new Date(mySession.clock_in).getTime()) / 1000)}
             </div>
             <p style={{ color: "#6b6142", fontSize: 11.5, letterSpacing: "0.08em", margin: "2px 0 22px" }}>
               ชั่วโมง : นาที : วินาที
@@ -620,10 +681,10 @@ function HomeView({ members, sessions, activeSessions, now, persistSessions }) {
               <tbody>
                 {activeSessions.map((s) => (
                   <tr key={s.id}>
-                    <td>{s.memberName}</td>
-                    <td>{timeLabelBangkok(s.clockIn)}</td>
+                    <td>{s.member_name}</td>
+                    <td>{timeLabelBangkok(s.clock_in)}</td>
                     <td className="tc-mono" style={{ textAlign: "right", color: "#f4d160" }}>
-                      {formatThaiDuration((now - new Date(s.clockIn).getTime()) / 1000)}
+                      {formatThaiDuration((now - new Date(s.clock_in).getTime()) / 1000)}
                     </td>
                   </tr>
                 ))}
@@ -639,7 +700,7 @@ function HomeView({ members, sessions, activeSessions, now, persistSessions }) {
 /* ---------------- admin view ---------------- */
 
 function AdminView(props) {
-  const { members, sessions, adminPassword, persistMembers, persistSessions, persistAdminPassword, now } = props;
+  const { members, sessions, adminPassword, addMember, updateMember, updateSession, persistAdminPassword, now } = props;
   const [authed, setAuthed] = useState(false);
   const [pwInput, setPwInput] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -687,8 +748,9 @@ function AdminView(props) {
     <AdminDashboard
       members={members}
       sessions={sessions}
-      persistMembers={persistMembers}
-      persistSessions={persistSessions}
+      addMember={addMember}
+      updateMember={updateMember}
+      updateSession={updateSession}
       persistAdminPassword={persistAdminPassword}
       now={now}
       onLogout={() => { setAuthed(false); setPwInput(""); }}
@@ -696,23 +758,21 @@ function AdminView(props) {
   );
 }
 
-function AdminDashboard({ members, sessions, persistMembers, persistSessions, persistAdminPassword, now, onLogout }) {
+function AdminDashboard({ members, sessions, addMember, updateMember, updateSession, persistAdminPassword, now, onLogout }) {
   const [tab, setTab] = useState("dashboard"); // dashboard | members | history | settings
-  const activeSessions = sessions.filter((s) => !s.clockOut);
+  const activeSessions = sessions.filter((s) => !s.clock_out);
   const todaysSeconds = sessions.reduce((sum, s) => {
-    if (dateKeyBangkok(s.clockIn) !== todayKeyBangkok()) return sum;
-    if (s.clockOut) return sum + s.durationSeconds;
-    return sum + (now - new Date(s.clockIn).getTime()) / 1000;
+    if (dateKeyBangkok(s.clock_in) !== todayKeyBangkok()) return sum;
+    if (s.clock_out) return sum + s.duration_seconds;
+    return sum + (now - new Date(s.clock_in).getTime()) / 1000;
   }, 0);
 
   const forceClockOut = async (sessionId) => {
-    const clockOut = new Date().toISOString();
-    const next = sessions.map((s) => {
-      if (s.id !== sessionId) return s;
-      const durationSeconds = Math.floor((new Date(clockOut) - new Date(s.clockIn)) / 1000);
-      return { ...s, clockOut, durationSeconds, endedBy: "admin" };
-    });
-    await persistSessions(next);
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    const clock_out = new Date().toISOString();
+    const duration_seconds = Math.floor((new Date(clock_out) - new Date(session.clock_in)) / 1000);
+    await updateSession(sessionId, { clock_out, duration_seconds, ended_by: "admin" });
   };
 
   const tabs = [
@@ -744,7 +804,7 @@ function AdminDashboard({ members, sessions, persistMembers, persistSessions, pe
           forceClockOut={forceClockOut}
         />
       )}
-      {tab === "members" && <MembersTab members={members} persistMembers={persistMembers} />}
+      {tab === "members" && <MembersTab members={members} addMember={addMember} updateMember={updateMember} />}
       {tab === "history" && <HistoryTab members={members} sessions={sessions} />}
       {tab === "settings" && <SettingsTab persistAdminPassword={persistAdminPassword} />}
     </div>
@@ -782,10 +842,10 @@ function DashboardTab({ members, activeSessions, todaysSeconds, now, forceClockO
               <tbody>
                 {activeSessions.map((s) => (
                   <tr key={s.id}>
-                    <td>{s.memberName}</td>
-                    <td>{timeLabelBangkok(s.clockIn)}</td>
+                    <td>{s.member_name}</td>
+                    <td>{timeLabelBangkok(s.clock_in)}</td>
                     <td className="tc-mono" style={{ color: "#f4d160" }}>
-                      {formatThaiDuration((now - new Date(s.clockIn).getTime()) / 1000)}
+                      {formatThaiDuration((now - new Date(s.clock_in).getTime()) / 1000)}
                     </td>
                     <td>
                       <button className="tc-btn tc-btn-sm tc-btn-danger" onClick={() => forceClockOut(s.id)}>
@@ -803,37 +863,39 @@ function DashboardTab({ members, activeSessions, todaysSeconds, now, forceClockO
   );
 }
 
-function MembersTab({ members, persistMembers }) {
+function MembersTab({ members, addMember: createMember, updateMember }) {
   const [name, setName] = useState("");
   const [position, setPosition] = useState("สมาชิกสภา");
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const addMember = async () => {
     setError("");
     if (!name.trim()) { setError("กรุณากรอกชื่อ"); return; }
     if (!/^\d{4,6}$/.test(pin)) { setError("รหัส PIN ต้องเป็นตัวเลข 4-6 หลัก"); return; }
-    const member = {
-      id: uid(),
-      name: name.trim(),
-      position: position.trim() || "สมาชิกสภา",
-      pin,
-      status: "active",
-      createdAt: new Date().toISOString(),
-    };
-    await persistMembers([member, ...members]);
-    setName(""); setPin("");
+    setBusy(true);
+    try {
+      await createMember({
+        name: name.trim(),
+        position: position.trim() || "สมาชิกสภา",
+        pin,
+        status: "active",
+      });
+      setName(""); setPin("");
+    } catch (e) {
+      setError("เพิ่มสมาชิกไม่สำเร็จ ลองใหม่อีกครั้ง");
+    }
+    setBusy(false);
   };
 
-  const toggleStatus = async (id) => {
-    const next = members.map((m) => m.id === id ? { ...m, status: m.status === "active" ? "inactive" : "active" } : m);
-    await persistMembers(next);
+  const toggleStatus = async (id, current) => {
+    await updateMember(id, { status: current === "active" ? "inactive" : "active" });
   };
 
   const updatePin = async (id, newPin) => {
     if (!/^\d{4,6}$/.test(newPin)) return;
-    const next = members.map((m) => m.id === id ? { ...m, pin: newPin } : m);
-    await persistMembers(next);
+    await updateMember(id, { pin: newPin });
   };
 
   return (
@@ -858,7 +920,7 @@ function MembersTab({ members, persistMembers }) {
             <label className="tc-label">PIN</label>
             <input className="tc-input" inputMode="numeric" maxLength={6} value={pin} onChange={(e) => setPin(e.target.value)} placeholder="4-6 หลัก" />
           </div>
-          <button className="tc-btn tc-btn-primary" onClick={addMember}>เพิ่มสมาชิก</button>
+          <button className="tc-btn tc-btn-primary" disabled={busy} onClick={addMember}>เพิ่มสมาชิก</button>
         </div>
         {error && <p style={{ color: "#ff8a73", fontSize: 12.5, marginTop: 10 }}>{error}</p>}
       </div>
@@ -892,7 +954,7 @@ function MembersTab({ members, persistMembers }) {
                       </span>
                     </td>
                     <td>
-                      <button className="tc-btn tc-btn-sm" onClick={() => toggleStatus(m.id)}>
+                      <button className="tc-btn tc-btn-sm" onClick={() => toggleStatus(m.id, m.status)}>
                         {m.status === "active" ? "ปิดใช้งาน" : "เปิดใช้งาน"}
                       </button>
                     </td>
@@ -912,15 +974,15 @@ function HistoryTab({ members, sessions }) {
   const [dateFilter, setDateFilter] = useState("");
 
   const filtered = sessions
-    .filter((s) => Boolean(s.clockOut)) // only completed sessions
-    .filter((s) => (memberFilter ? s.memberId === memberFilter : true))
-    .filter((s) => (dateFilter ? dateKeyBangkok(s.clockIn) === dateFilter : true))
-    .sort((a, b) => new Date(b.clockIn) - new Date(a.clockIn));
+    .filter((s) => Boolean(s.clock_out)) // only completed sessions
+    .filter((s) => (memberFilter ? s.member_id === memberFilter : true))
+    .filter((s) => (dateFilter ? dateKeyBangkok(s.clock_in) === dateFilter : true))
+    .sort((a, b) => new Date(b.clock_in) - new Date(a.clock_in));
 
   // group by date for a readable report
   const grouped = {};
   filtered.forEach((s) => {
-    const key = dateKeyBangkok(s.clockIn);
+    const key = dateKeyBangkok(s.clock_in);
     grouped[key] = grouped[key] || [];
     grouped[key].push(s);
   });
@@ -954,7 +1016,7 @@ function HistoryTab({ members, sessions }) {
       ) : (
         dateKeys.map((key) => {
           const daySessions = grouped[key];
-          const dayTotal = daySessions.reduce((sum, s) => sum + s.durationSeconds, 0);
+          const dayTotal = daySessions.reduce((sum, s) => sum + s.duration_seconds, 0);
           return (
             <div key={key} className="tc-panel" style={{ padding: "20px 24px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
@@ -968,10 +1030,10 @@ function HistoryTab({ members, sessions }) {
                 <tbody>
                   {daySessions.map((s) => (
                     <tr key={s.id}>
-                      <td>{s.memberName}</td>
-                      <td>{timeLabelBangkok(s.clockIn)}</td>
-                      <td>{timeLabelBangkok(s.clockOut)}{s.endedBy === "admin" ? " (admin)" : ""}</td>
-                      <td className="tc-mono" style={{ textAlign: "right", color: "#f4d160" }}>{formatThaiDuration(s.durationSeconds)}</td>
+                      <td>{s.member_name}</td>
+                      <td>{timeLabelBangkok(s.clock_in)}</td>
+                      <td>{timeLabelBangkok(s.clock_out)}{s.ended_by === "admin" ? " (admin)" : ""}</td>
+                      <td className="tc-mono" style={{ textAlign: "right", color: "#f4d160" }}>{formatThaiDuration(s.duration_seconds)}</td>
                     </tr>
                   ))}
                 </tbody>
