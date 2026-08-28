@@ -1,1074 +1,1178 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { createClient } from "@supabase/supabase-js";
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { createClient } from '@supabase/supabase-js';
+import {
+  Shield,
+  Clock,
+  User,
+  Users,
+  CheckCircle,
+  AlertTriangle,
+  TrendingUp,
+  LogOut,
+  Key,
+  Maximize2,
+  Minimize2,
+  Search,
+  Filter,
+  BarChart3,
+  Activity,
+  Award,
+  Terminal,
+  X,
+  Radio,
+  Sparkles,
+  Lock,
+  Unlock,
+  RefreshCw,
+  UserPlus,
+  UserCheck,
+  UserX,
+  ChevronRight
+} from 'lucide-react';
 
-/* ---------------------------------------------------------
-   TOFFEE COUNCIL — ระบบเข้าเวรสภา
-   Theme: black / gold / neon yellow
-   Storage: Supabase (PostgreSQL) — ข้อมูลซิงค์กันทุกเครื่องแบบเรียลไทม์
---------------------------------------------------------- */
+// ==========================================
+// SUPABASE CLIENT INITIALIZATION
+// ==========================================
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-const DEFAULT_ADMIN_PASSWORD = "council2026";
+const supabase = (supabaseUrl && supabaseAnonKey)
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null;
 
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+// ==========================================
+// UTILITY FUNCTIONS
+// ==========================================
+const formatDuration = (totalSeconds) => {
+  if (!totalSeconds || totalSeconds < 0) return '00:00:00';
+  const hrs = Math.floor(totalSeconds / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  return [hrs, mins, secs].map(v => String(v).padStart(2, '0')).join(':');
+};
 
-function pad(n) {
-  return String(n).padStart(2, "0");
-}
+const formatBangkokTime = (date = new Date()) => {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Bangkok',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(date);
+};
 
-function formatClock(totalSeconds) {
-  const s = Math.max(0, Math.floor(totalSeconds));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return `${pad(h)}:${pad(m)}:${pad(sec)}`;
-}
+const formatBangkokDate = (date = new Date()) => {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Bangkok',
+    weekday: 'short',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  }).format(date).toUpperCase();
+};
 
-function formatThaiDuration(totalSeconds) {
-  const s = Math.max(0, Math.floor(totalSeconds));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return `${h}ชม. ${pad(m)}น.`;
-}
-
-function dateKeyBangkok(isoString) {
-  const d = new Date(isoString);
-  // Asia/Bangkok = UTC+7, no DST
-  const bkk = new Date(d.getTime() + 7 * 60 * 60 * 1000);
-  return `${bkk.getUTCFullYear()}-${pad(bkk.getUTCMonth() + 1)}-${pad(bkk.getUTCDate())}`;
-}
-
-function timeLabelBangkok(isoString) {
-  const d = new Date(isoString);
-  const bkk = new Date(d.getTime() + 7 * 60 * 60 * 1000);
-  return `${pad(bkk.getUTCHours())}:${pad(bkk.getUTCMinutes())} น.`;
-}
-
-function dateLabelBangkok(dateKey) {
-  const months = [
-    "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
-    "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค.",
-  ];
-  const [y, m, d] = dateKey.split("-").map(Number);
-  return `${d} ${months[m - 1]} ${y + 543}`;
-}
-
-function todayKeyBangkok() {
-  return dateKeyBangkok(new Date().toISOString());
-}
-
-/* ---------------- supabase data helpers ---------------- */
-
-async function fetchMembers() {
-  const { data, error } = await supabase
-    .from("members")
-    .select("*")
-    .order("created_at", { ascending: false });
-  if (error) { console.error("fetchMembers error", error); return []; }
-  return data || [];
-}
-
-async function fetchSessions() {
-  const { data, error } = await supabase
-    .from("sessions")
-    .select("*")
-    .order("clock_in", { ascending: false });
-  if (error) { console.error("fetchSessions error", error); return []; }
-  return data || [];
-}
-
-async function fetchAdminPassword() {
-  const { data, error } = await supabase
-    .from("admin_config")
-    .select("password")
-    .eq("id", 1)
-    .maybeSingle();
-  if (error || !data) { console.error("fetchAdminPassword error", error); return DEFAULT_ADMIN_PASSWORD; }
-  return data.password || DEFAULT_ADMIN_PASSWORD;
-}
-
-async function insertMember(member) {
-  const { error } = await supabase.from("members").insert([member]);
-  if (error) throw error;
-}
-
-async function updateMemberRow(id, patch) {
-  const { error } = await supabase.from("members").update(patch).eq("id", id);
-  if (error) throw error;
-}
-
-async function insertSession(session) {
-  const { error } = await supabase.from("sessions").insert([session]);
-  if (error) throw error;
-}
-
-async function updateSessionRow(id, patch) {
-  const { error } = await supabase.from("sessions").update(patch).eq("id", id);
-  if (error) throw error;
-}
-
-async function upsertAdminPassword(password) {
-  const { error } = await supabase.from("admin_config").upsert({ id: 1, password });
-  if (error) throw error;
-}
-
-/* ---------------- shared style bits ---------------- */
-
-const GlobalStyle = () => (
-  <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700;800&family=Orbitron:wght@500;700;900&display=swap');
-
-    .tc-root {
-      --gold: #d4af37;
-      --gold-bright: #f4d160;
-      --neon: #ffe600;
-      --neon-soft: rgba(255,230,0,0.35);
-      --bg: #050403;
-      --bg-panel: #0d0a06;
-      --bg-panel2: #14100a;
-      --line: rgba(212,175,55,0.28);
-      --text: #f3e8c8;
-      --text-dim: #9c8f66;
-      --danger: #e3543f;
-      --ok: #7cff6b;
-      font-family: 'Kanit', sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100%;
-      position: relative;
-    }
-    .tc-mono { font-family: 'Orbitron', 'Kanit', sans-serif; }
-
-    .tc-bgfx {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      background:
-        radial-gradient(ellipse 60% 40% at 50% -10%, rgba(255,230,0,0.10), transparent 60%),
-        radial-gradient(ellipse 50% 30% at 100% 100%, rgba(212,175,55,0.08), transparent 60%),
-        repeating-linear-gradient(0deg, rgba(212,175,55,0.025) 0px, rgba(212,175,55,0.025) 1px, transparent 1px, transparent 3px);
-      z-index: 0;
-    }
-
-    .tc-glow-text {
-      text-shadow: 0 0 6px var(--neon-soft), 0 0 22px rgba(255,230,0,0.25);
-    }
-    .tc-panel {
-      background: linear-gradient(180deg, var(--bg-panel), var(--bg-panel2));
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      box-shadow: 0 0 0 1px rgba(0,0,0,0.4) inset, 0 10px 40px rgba(0,0,0,0.5);
-      position: relative;
-    }
-    .tc-panel::before {
-      content: '';
-      position: absolute;
-      inset: -1px;
-      border-radius: 15px;
-      padding: 1px;
-      background: linear-gradient(135deg, var(--gold), transparent 30%, transparent 70%, var(--gold));
-      opacity: 0.4;
-      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-      -webkit-mask-composite: xor;
-      mask-composite: exclude;
-      pointer-events: none;
-    }
-
-    .tc-btn {
-      font-family: 'Kanit', sans-serif;
-      font-weight: 600;
-      letter-spacing: 0.03em;
-      border-radius: 10px;
-      border: 1px solid var(--gold);
-      background: linear-gradient(180deg, rgba(212,175,55,0.18), rgba(212,175,55,0.04));
-      color: var(--gold-bright);
-      padding: 12px 20px;
-      cursor: pointer;
-      transition: all 0.18s ease;
-    }
-    .tc-btn:hover:not(:disabled) {
-      background: linear-gradient(180deg, rgba(255,230,0,0.28), rgba(255,230,0,0.06));
-      box-shadow: 0 0 18px var(--neon-soft), 0 0 2px var(--neon);
-      color: #fff8d6;
-      transform: translateY(-1px);
-    }
-    .tc-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .tc-btn-primary {
-      background: linear-gradient(180deg, var(--neon), #c9a900);
-      color: #1a1400;
-      border: 1px solid var(--neon);
-      box-shadow: 0 0 24px var(--neon-soft);
-      font-weight: 700;
-    }
-    .tc-btn-primary:hover:not(:disabled) {
-      box-shadow: 0 0 34px var(--neon), 0 0 10px #fff6b0;
-      transform: translateY(-1px);
-    }
-    .tc-btn-danger {
-      border-color: var(--danger);
-      color: #ffb3a3;
-    }
-    .tc-btn-danger:hover:not(:disabled) {
-      box-shadow: 0 0 18px rgba(227,84,63,0.45);
-      color: #fff;
-    }
-    .tc-btn-sm { padding: 6px 12px; font-size: 0.8rem; border-radius: 8px; }
-
-    .tc-input, .tc-select {
-      font-family: 'Kanit', sans-serif;
-      background: #0a0806;
-      border: 1px solid var(--line);
-      color: var(--text);
-      border-radius: 9px;
-      padding: 11px 14px;
-      outline: none;
-      width: 100%;
-      transition: border-color 0.15s, box-shadow 0.15s;
-    }
-    .tc-input:focus, .tc-select:focus {
-      border-color: var(--neon);
-      box-shadow: 0 0 0 3px rgba(255,230,0,0.15);
-    }
-    .tc-input::placeholder { color: var(--text-dim); }
-    .tc-label {
-      font-size: 0.78rem;
-      color: var(--text-dim);
-      letter-spacing: 0.05em;
-      margin-bottom: 6px;
-      display: block;
-    }
-
-    .tc-dot {
-      width: 9px; height: 9px; border-radius: 50%;
-      background: var(--ok);
-      box-shadow: 0 0 8px var(--ok), 0 0 2px var(--ok);
-      display: inline-block;
-      animation: tc-pulse 1.6s ease-in-out infinite;
-    }
-    @keyframes tc-pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.55; transform: scale(0.85); }
-    }
-
-    .tc-seal {
-      width: 108px; height: 108px;
-      border-radius: 50%;
-      border: 2px solid var(--gold);
-      display: flex; align-items: center; justify-content: center;
-      position: relative;
-      background: radial-gradient(circle at 50% 40%, rgba(255,230,0,0.12), transparent 70%);
-      box-shadow: 0 0 30px rgba(255,230,0,0.25), inset 0 0 20px rgba(212,175,55,0.15);
-    }
-    .tc-seal::before, .tc-seal::after {
-      content: '';
-      position: absolute;
-      border-radius: 50%;
-      border: 1px solid rgba(212,175,55,0.5);
-    }
-    .tc-seal::before { inset: 8px; }
-    .tc-seal::after {
-      inset: -6px;
-      border-color: rgba(255,230,0,0.18);
-      animation: tc-spin 12s linear infinite;
-      border-style: dashed;
-    }
-    @keyframes tc-spin { to { transform: rotate(360deg); } }
-
-    .tc-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-    .tc-table th {
-      text-align: left;
-      color: var(--text-dim);
-      font-weight: 500;
-      font-size: 0.75rem;
-      letter-spacing: 0.06em;
-      padding: 8px 10px;
-      border-bottom: 1px solid var(--line);
-    }
-    .tc-table td {
-      padding: 10px 10px;
-      border-bottom: 1px solid rgba(212,175,55,0.10);
-    }
-    .tc-table tr:hover td { background: rgba(255,230,0,0.03); }
-
-    .tc-tab {
-      padding: 9px 18px;
-      border-radius: 999px;
-      cursor: pointer;
-      font-weight: 500;
-      font-size: 0.88rem;
-      color: var(--text-dim);
-      border: 1px solid transparent;
-      transition: all 0.15s;
-    }
-    .tc-tab.active {
-      color: #1a1400;
-      background: var(--neon);
-      box-shadow: 0 0 16px var(--neon-soft);
-      font-weight: 700;
-    }
-    .tc-tab:not(.active):hover { color: var(--gold-bright); border-color: var(--line); }
-
-    .tc-badge {
-      font-size: 0.72rem;
-      padding: 3px 9px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      color: var(--text-dim);
-      letter-spacing: 0.04em;
-    }
-    .tc-badge.on { color: var(--ok); border-color: rgba(124,255,107,0.35); background: rgba(124,255,107,0.06); }
-
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
-  `}</style>
-);
-
-/* ---------------- main app ---------------- */
-
-export default function ToffeeCouncil() {
+export default function App() {
+  // ------------------------------------------
+  // STATES
+  // ------------------------------------------
   const [members, setMembers] = useState([]);
-  const [sessions, setSessions] = useState([]);
-  const [adminPassword, setAdminPassword] = useState(null);
-  const [loaded, setLoaded] = useState(false);
-  const [view, setView] = useState("home"); // home | admin
-  const [now, setNow] = useState(Date.now());
-  const busyRef = useRef(false);
+  const [activeSessions, setActiveSessions] = useState([]);
+  const [historySessions, setHistorySessions] = useState([]);
+  const [adminConfig, setAdminConfig] = useState({ password: 'council2026' });
 
-  const refreshMembers = useCallback(async () => {
-    setMembers(await fetchMembers());
-  }, []);
-  const refreshSessions = useCallback(async () => {
-    setSessions(await fetchSessions());
+  // App UI States
+  const [activeTab, setActiveTab] = useState('duty'); // 'duty' | 'monitor' | 'history' | 'analytics' | 'admin'
+  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+  const [adminPasswordInput, setAdminPasswordInput] = useState('');
+  const [focusModeSession, setFocusModeSession] = useState(null);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  
+  // Selection & Forms
+  const [selectedMemberId, setSelectedMemberId] = useState('');
+  const [pinInput, setPinInput] = useState('');
+  const [pinModalOpen, setPinModalOpen] = useState(false);
+  const [newMemberName, setNewMemberName] = useState('');
+  const [newMemberPosition, setNewMemberPosition] = useState('สมาชิกสภา');
+  const [newMemberPin, setNewMemberPin] = useState('');
+  
+  // System Health & Loading
+  const [dbConnected, setDbConnected] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  
+  // Filters & Search
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyFilterMember, setHistoryFilterMember] = useState('all');
+
+  // Toasts
+  const [toasts, setToasts] = useState([]);
+
+  const addToast = useCallback((message, type = 'info') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 4000);
   }, []);
 
-  const refreshAll = useCallback(async () => {
-    if (busyRef.current) return;
-    const [m, s, pw] = await Promise.all([fetchMembers(), fetchSessions(), fetchAdminPassword()]);
-    setMembers(m);
-    setSessions(s);
-    setAdminPassword(pw);
-    setLoaded(true);
+  // ------------------------------------------
+  // DIGITAL CLOCK TICKER
+  // ------------------------------------------
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
   }, []);
+
+  // ------------------------------------------
+  // KEYBOARD SHORTCUT (CTRL + K)
+  // ------------------------------------------
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // ------------------------------------------
+  // DATA FETCHING & REALTIME SUBSCRIPTIONS
+  // ------------------------------------------
+  const fetchData = useCallback(async () => {
+    if (!supabase) {
+      setDbConnected(false);
+      return;
+    }
+
+    try {
+      // 1. Members
+      const { data: membersData, error: mErr } = await supabase
+        .from('members')
+        .select('*')
+        .order('name', { ascending: true });
+      if (mErr) throw mErr;
+      setMembers(membersData || []);
+
+      // 2. Active Sessions (clock_out is null)
+      const { data: activeData, error: aErr } = await supabase
+        .from('sessions')
+        .select('*')
+        .is('clock_out', null)
+        .order('clock_in', { ascending: false });
+      if (aErr) throw aErr;
+      setActiveSessions(activeData || []);
+
+      // 3. History Sessions (clock_out is not null)
+      const { data: historyData, error: hErr } = await supabase
+        .from('sessions')
+        .select('*')
+        .not('clock_out', 'is', null)
+        .order('clock_in', { ascending: false })
+        .limit(100);
+      if (hErr) throw hErr;
+      setHistorySessions(historyData || []);
+
+      // 4. Admin Config
+      const { data: adminData } = await supabase
+        .from('admin_config')
+        .select('*')
+        .eq('id', 1)
+        .single();
+      if (adminData) setAdminConfig(adminData);
+
+      setDbConnected(true);
+    } catch (err) {
+      console.error('Supabase fetch error:', err);
+      setDbConnected(false);
+      addToast('ไม่สามารถเชื่อมต่อฐานข้อมูล Supabase ได้', 'error');
+    }
+  }, [addToast]);
 
   useEffect(() => {
-    refreshAll();
+    fetchData();
 
-    // ซิงค์ข้อมูลแบบเรียลไทม์: พอมีใครแก้ข้อมูลในตาราง ทุกเครื่องที่เปิดเว็บอยู่จะดึงข้อมูลใหม่ทันที
+    if (!supabase) return;
+
+    // Realtime channel
     const channel = supabase
-      .channel("council-sync")
-      .on("postgres_changes", { event: "*", schema: "public", table: "members" }, refreshMembers)
-      .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, refreshSessions)
+      .channel('schema-db-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'members' }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sessions' }, () => fetchData())
       .subscribe();
-
-    // ตัวสำรองเผื่อ realtime หลุดการเชื่อมต่อชั่วคราว
-    const poll = setInterval(refreshAll, 15000);
-    const tick = setInterval(() => setNow(Date.now()), 1000);
 
     return () => {
       supabase.removeChannel(channel);
-      clearInterval(poll);
-      clearInterval(tick);
     };
-  }, [refreshAll, refreshMembers, refreshSessions]);
+  }, [fetchData]);
 
-  const addMember = async (member) => {
-    await insertMember(member);
-    await refreshMembers();
-  };
-  const updateMember = async (id, patch) => {
-    await updateMemberRow(id, patch);
-    await refreshMembers();
-  };
-  const addSession = async (session) => {
-    await insertSession(session);
-    await refreshSessions();
-  };
-  const updateSession = async (id, patch) => {
-    await updateSessionRow(id, patch);
-    await refreshSessions();
-  };
-  const persistAdminPassword = async (pw) => {
-    await upsertAdminPassword(pw);
-    setAdminPassword(pw);
+  // ------------------------------------------
+  // DUTY LOGIC (CLOCK IN / CLOCK OUT)
+  // ------------------------------------------
+  const handleClockIn = async () => {
+    if (!selectedMemberId) {
+      addToast('กรุณาเลือกสมาชิกก่อนเข้าเวร', 'warning');
+      return;
+    }
+
+    const member = members.find(m => m.id === selectedMemberId);
+    if (!member) return;
+
+    if (member.status === 'inactive') {
+      addToast('สมาชิกท่านนี้ถูกระงับสิทธิ์การปฏิบัติหน้าที่', 'error');
+      return;
+    }
+
+    if (!pinInput) {
+      addToast('กรุณากรอกรหัส PIN', 'warning');
+      return;
+    }
+
+    if (member.pin !== pinInput) {
+      addToast('รหัส PIN ไม่ถูกต้อง', 'error');
+      return;
+    }
+
+    // Check if already active
+    const alreadyActive = activeSessions.find(s => s.member_id === member.id);
+    if (alreadyActive) {
+      addToast('สมาชิกท่านนี้กำลังปฏิบัติหน้าที่อยู่แล้ว', 'warning');
+      setPinModalOpen(false);
+      setPinInput('');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('sessions')
+        .insert([{
+          member_id: member.id,
+          member_name: member.name,
+          clock_in: new Date().toISOString()
+        }])
+        .select();
+
+      if (error) throw error;
+
+      addToast(`● [ON DUTY] ${member.name} เริ่มปฏิบัติหน้าที่เรียบร้อย`, 'success');
+      setPinModalOpen(false);
+      setPinInput('');
+      fetchData();
+    } catch (err) {
+      addToast('เกิดข้อผิดพลาดในการบันทึกเวลาเข้าเวร: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const activeSessions = sessions.filter((s) => !s.clock_out);
+  const handleClockOut = async (sessionId, endedBy = 'member') => {
+    const session = activeSessions.find(s => s.id === sessionId);
+    if (!session) return;
 
-  const todaysSeconds = sessions.reduce((sum, s) => {
-    if (dateKeyBangkok(s.clock_in) !== todayKeyBangkok()) return sum;
-    if (s.clock_out) return sum + s.duration_seconds;
-    return sum + (now - new Date(s.clock_in).getTime()) / 1000;
-  }, 0);
+    setLoading(true);
+    try {
+      const clockOutTime = new Date();
+      const clockInTime = new Date(session.clock_in);
+      const durationSeconds = Math.max(0, Math.floor((clockOutTime - clockInTime) / 1000));
 
-  if (!loaded) {
+      const { error } = await supabase
+        .from('sessions')
+        .update({
+          clock_out: clockOutTime.toISOString(),
+          duration_seconds: durationSeconds,
+          ended_by: endedBy
+        })
+        .eq('id', sessionId);
+
+      if (error) throw error;
+
+      addToast(`OFF DUTY: ${session.member_name} ออกจากเวรแล้ว (${formatDuration(durationSeconds)})`, 'info');
+      if (focusModeSession?.id === sessionId) setFocusModeSession(null);
+      fetchData();
+    } catch (err) {
+      addToast('เกิดข้อผิดพลาดในการบันทึกเวลาออกเวร: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ------------------------------------------
+  // ADMIN & MEMBER MANAGEMENT LOGIC
+  // ------------------------------------------
+  const handleAdminLogin = (e) => {
+    e.preventDefault();
+    if (adminPasswordInput === adminConfig.password) {
+      setIsAdminLoggedIn(true);
+      addToast('เข้าสู่ระบบแอดมินสำเร็จ', 'success');
+      setAdminPasswordInput('');
+    } else {
+      addToast('รหัสผ่านแอดมินไม่ถูกต้อง', 'error');
+    }
+  };
+
+  const handleAddMember = async (e) => {
+    e.preventDefault();
+    if (!newMemberName || !newMemberPin) {
+      addToast('กรุณากรอกข้อมูลสมาชิกให้ครบถ้วน', 'warning');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('members').insert([{
+        name: newMemberName,
+        position: newMemberPosition || 'สมาชิกสภา',
+        pin: newMemberPin,
+        status: 'active'
+      }]);
+
+      if (error) throw error;
+
+      addToast(`เพิ่มสมาชิก ${newMemberName} สำเร็จ`, 'success');
+      setNewMemberName('');
+      setNewMemberPin('');
+      fetchData();
+    } catch (err) {
+      addToast('ไม่สามารถเพิ่มสมาชิกได้: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleMemberStatus = async (memberId, currentStatus) => {
+    const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+    try {
+      const { error } = await supabase
+        .from('members')
+        .update({ status: newStatus })
+        .eq('id', memberId);
+
+      if (error) throw error;
+      addToast(`อัปเดตสถานะเป็น ${newStatus.toUpperCase()} สำเร็จ`, 'info');
+      fetchData();
+    } catch (err) {
+      addToast('ไม่สามารถเปลี่ยนสถานะได้: ' + err.message, 'error');
+    }
+  };
+
+  // ------------------------------------------
+  // COMPUTED STATS & ANALYTICS
+  // ------------------------------------------
+  const stats = useMemo(() => {
+    const totalMembers = members.length;
+    const activeDutyCount = activeSessions.length;
+    
+    // Calculate Today's Hours
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todaySessions = historySessions.filter(s => s.clock_in?.startsWith(todayStr));
+    const todayTotalSeconds = todaySessions.reduce((acc, s) => acc + (s.duration_seconds || 0), 0);
+
+    // Calculate Month's Hours
+    const currentMonth = new Date().getMonth();
+    const currentYear = new Date().getFullYear();
+    const monthSessions = historySessions.filter(s => {
+      const d = new Date(s.clock_in);
+      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+    });
+    const monthTotalSeconds = monthSessions.reduce((acc, s) => acc + (s.duration_seconds || 0), 0);
+
+    // Leaderboard
+    const memberHoursMap = {};
+    historySessions.forEach(s => {
+      memberHoursMap[s.member_name] = (memberHoursMap[s.member_name] || 0) + (s.duration_seconds || 0);
+    });
+    const leaderboard = Object.entries(memberHoursMap)
+      .map(([name, sec]) => ({ name, sec }))
+      .sort((a, b) => b.sec - a.sec)
+      .slice(0, 5);
+
+    return {
+      totalMembers,
+      activeDutyCount,
+      todayHoursFormatted: (todayTotalSeconds / 3600).toFixed(1) + ' ชม.',
+      monthHoursFormatted: (monthTotalSeconds / 3600).toFixed(1) + ' ชม.',
+      leaderboard
+    };
+  }, [members, activeSessions, historySessions]);
+
+  // Filtered History
+  const filteredHistory = useMemo(() => {
+    return historySessions.filter(s => {
+      const matchesSearch = s.member_name.toLowerCase().includes(historySearch.toLowerCase());
+      const matchesMember = historyFilterMember === 'all' || s.member_id === historyFilterMember;
+      return matchesSearch && matchesMember;
+    });
+  }, [historySessions, historySearch, historyFilterMember]);
+
+  // ==========================================
+  // RENDER: FOCUS MODE (FIVEM OPTIMIZED)
+  // ==========================================
+  if (focusModeSession) {
+    const clockInTime = new Date(focusModeSession.clock_in);
+    const liveSecs = Math.max(0, Math.floor((currentTime - clockInTime) / 1000));
+
     return (
-      <div className="tc-root" style={{ padding: 60, textAlign: "center", color: "#9c8f66" }}>
-        <GlobalStyle />
-        กำลังโหลดข้อมูลสภา…
+      <div className="fixed inset-0 bg-[#090a0f] text-white flex flex-col items-center justify-center p-6 z-50 select-none">
+        <div className="absolute top-6 right-6">
+          <button
+            onClick={() => setFocusModeSession(null)}
+            className="flex items-center gap-2 bg-[#1a1d2b] hover:bg-[#25293c] text-gray-400 hover:text-white px-4 py-2 rounded-lg border border-gray-800 transition"
+          >
+            <Minimize2 className="w-4 h-4" />
+            <span>ออกจาก Focus Mode</span>
+          </button>
+        </div>
+
+        <div className="text-center space-y-8 max-w-lg w-full">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm font-semibold tracking-widest uppercase">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+            ON DUTY — FULL FOCUS MODE
+          </div>
+
+          <div>
+            <h1 className="text-4xl font-extrabold text-white tracking-tight">{focusModeSession.member_name}</h1>
+            <p className="text-amber-400/80 font-mono text-sm mt-1">ปฏิบัติหน้าที่ตั้งแต่ {formatBangkokTime(clockInTime)} น.</p>
+          </div>
+
+          {/* TIMER RING */}
+          <div className="relative w-72 h-72 mx-auto flex items-center justify-center rounded-full bg-[#12141d] border-4 border-amber-500/30 shadow-[0_0_50px_rgba(212,175,55,0.15)]">
+            <div className="text-center">
+              <span className="block text-gray-500 text-xs tracking-widest uppercase font-mono mb-1">LIVE DURATION</span>
+              <span className="text-5xl font-extrabold font-mono text-amber-400 tracking-wider">
+                {formatDuration(liveSecs)}
+              </span>
+            </div>
+          </div>
+
+          <button
+            onClick={() => handleClockOut(focusModeSession.id)}
+            disabled={loading}
+            className="w-full py-4 bg-red-600/90 hover:bg-red-500 text-white font-bold rounded-xl shadow-lg shadow-red-950/50 transition border border-red-500/30 text-lg flex items-center justify-center gap-2"
+          >
+            <LogOut className="w-5 h-5" />
+            <span>บันทึกออกเวร (END DUTY)</span>
+          </button>
+        </div>
       </div>
     );
   }
 
+  // ==========================================
+  // RENDER: MAIN COMMAND CENTER UI
+  // ==========================================
   return (
-    <div className="tc-root" style={{ padding: "28px 16px 60px" }}>
-      <GlobalStyle />
-      <div className="tc-bgfx" />
-      <div style={{ position: "relative", zIndex: 1, maxWidth: 920, margin: "0 auto" }}>
-        <Header
-          view={view}
-          setView={setView}
-          onDutyCount={activeSessions.length}
-          todaysSeconds={todaysSeconds}
-        />
-
-        {view === "home" ? (
-          <HomeView
-            members={members}
-            sessions={sessions}
-            activeSessions={activeSessions}
-            now={now}
-            addSession={addSession}
-            updateSession={updateSession}
-          />
-        ) : (
-          <AdminView
-            members={members}
-            sessions={sessions}
-            adminPassword={adminPassword}
-            addMember={addMember}
-            updateMember={updateMember}
-            updateSession={updateSession}
-            persistAdminPassword={persistAdminPassword}
-            now={now}
-          />
-        )}
-
-        <footer style={{ textAlign: "center", marginTop: 40, color: "#5c5335", fontSize: 12, letterSpacing: "0.05em" }}>
-          TOFFEE COUNCIL DUTY SYSTEM · Asia/Bangkok
-        </footer>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- header ---------------- */
-
-function Header({ view, setView, onDutyCount, todaysSeconds }) {
-  return (
-    <div style={{ textAlign: "center", marginBottom: 28 }}>
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
-        <div className="tc-seal">
-          <span className="tc-mono" style={{ fontSize: 26, fontWeight: 900, color: "#f4d160" }}>TC</span>
-        </div>
-      </div>
-      <h1
-        className="tc-mono tc-glow-text"
-        style={{
-          fontSize: "clamp(28px, 6vw, 42px)",
-          fontWeight: 900,
-          letterSpacing: "0.08em",
-          color: "#ffe600",
-          margin: "0 0 4px",
-        }}
-      >
-        TOFFEE COUNCIL
-      </h1>
-      <p style={{ color: "#b7a35f", fontSize: 14, letterSpacing: "0.08em", margin: "0 0 18px" }}>
-        ระบบปฏิบัติหน้าที่สภา · DUTY CHECK-IN SYSTEM
-      </p>
-
-      <div
-        className="tc-panel"
-        style={{
-          display: "inline-flex",
-          gap: 22,
-          alignItems: "center",
-          padding: "10px 24px",
-          borderRadius: 999,
-          fontSize: 13.5,
-          marginBottom: 18,
-        }}
-      >
-        <span>
-          <span className="tc-dot" style={{ marginRight: 7 }} />
-          <b style={{ color: "#7cff6b" }}>{onDutyCount}</b> กำลังปฏิบัติหน้าที่
-        </span>
-        <span style={{ color: "#3a3320" }}>│</span>
-        <span>
-          วันนี้รวม <b className="tc-mono" style={{ color: "#f4d160" }}>{formatThaiDuration(todaysSeconds)}</b>
-        </span>
+    <div className="min-h-screen bg-[#090a0f] text-gray-200 font-sans antialiased selection:bg-amber-500/30 selection:text-amber-200">
+      
+      {/* TOAST NOTIFICATION CONTAINER */}
+      <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+        {toasts.map(toast => (
+          <div
+            key={toast.id}
+            className={`pointer-events-auto flex items-center gap-3 p-4 rounded-xl border shadow-2xl backdrop-blur-md transition-all duration-300 animate-slide-up ${
+              toast.type === 'error' ? 'bg-red-950/90 border-red-500/40 text-red-200' :
+              toast.type === 'success' ? 'bg-emerald-950/90 border-emerald-500/40 text-emerald-200' :
+              toast.type === 'warning' ? 'bg-amber-950/90 border-amber-500/40 text-amber-200' :
+              'bg-[#161925]/90 border-amber-500/30 text-gray-200'
+            }`}
+          >
+            <Activity className="w-5 h-5 shrink-0 text-amber-400" />
+            <span className="text-sm font-medium">{toast.message}</span>
+          </div>
+        ))}
       </div>
 
-      <div>
-        <span className={`tc-tab ${view === "home" ? "active" : ""}`} onClick={() => setView("home")}>
-          👤 หน้าสมาชิก
-        </span>
-        <span style={{ display: "inline-block", width: 10 }} />
-        <span className={`tc-tab ${view === "admin" ? "active" : ""}`} onClick={() => setView("admin")}>
-          🔐 Admin
-        </span>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- home / member view ---------------- */
-
-function HomeView({ members, sessions, activeSessions, now, addSession, updateSession }) {
-  const activeMembers = members.filter((m) => m.status === "active");
-  const [selectedId, setSelectedId] = useState("");
-  const [pin, setPin] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    setError("");
-  }, [selectedId]);
-
-  const selectedMember = activeMembers.find((m) => m.id === selectedId);
-  const mySession = selectedMember ? activeSessions.find((s) => s.member_id === selectedMember.id) : null;
-
-  const handleClockIn = async () => {
-    setError("");
-    if (!selectedMember) { setError("กรุณาเลือกชื่อของคุณ"); return; }
-    if (!pin) { setError("กรุณากรอกรหัสสมาชิก"); return; }
-    if (selectedMember.pin !== pin) { setError("รหัสสมาชิกไม่ถูกต้อง"); return; }
-    if (activeSessions.some((s) => s.member_id === selectedMember.id)) {
-      setError("คุณกำลังเข้าเวรอยู่แล้ว");
-      return;
-    }
-    setBusy(true);
-    try {
-      await addSession({
-        member_id: selectedMember.id,
-        member_name: selectedMember.name,
-        clock_in: new Date().toISOString(),
-      });
-      setPin("");
-    } catch (e) {
-      setError("บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง");
-    }
-    setBusy(false);
-  };
-
-  const handleClockOut = async () => {
-    setError("");
-    if (!mySession) return;
-    if (!pin) { setError("กรุณากรอกรหัสสมาชิกเพื่อออกเวร"); return; }
-    if (selectedMember.pin !== pin) { setError("รหัสสมาชิกไม่ถูกต้อง"); return; }
-    setBusy(true);
-    const clock_out = new Date().toISOString();
-    const duration_seconds = Math.floor((new Date(clock_out) - new Date(mySession.clock_in)) / 1000);
-    try {
-      await updateSession(mySession.id, { clock_out, duration_seconds, ended_by: "member" });
-      setPin("");
-    } catch (e) {
-      setError("บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง");
-    }
-    setBusy(false);
-  };
-
-  return (
-    <div style={{ display: "grid", gap: 22 }}>
-      {/* check-in card */}
-      <div className="tc-panel" style={{ padding: 28 }}>
-        {mySession ? (
-          <div style={{ textAlign: "center" }}>
-            <div className="tc-badge on" style={{ marginBottom: 14, display: "inline-block" }}>
-              <span className="tc-dot" style={{ marginRight: 6 }} />กำลังเข้าเวร
+      {/* HEADER COMMAND BAR */}
+      <header className="sticky top-0 z-40 bg-[#0e1017]/90 backdrop-blur-md border-b border-amber-500/15 px-4 lg:px-8 py-3">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+          
+          {/* LOGO & TITLE */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 p-0.5 shadow-[0_0_15px_rgba(212,175,55,0.2)]">
+              <div className="w-full h-full bg-[#090a0f] rounded-[10px] flex items-center justify-center">
+                <Shield className="w-5 h-5 text-amber-400" />
+              </div>
             </div>
-            <h2 style={{ margin: "0 0 4px", fontSize: 26, color: "#fff8d6" }}>{selectedMember.name}</h2>
-            <p style={{ color: "#9c8f66", margin: "0 0 18px", fontSize: 13.5 }}>
-              เริ่มเวลา {timeLabelBangkok(mySession.clock_in)}
-            </p>
-            <div
-              className="tc-mono tc-glow-text"
-              style={{ fontSize: "clamp(38px, 9vw, 58px)", fontWeight: 700, color: "#ffe600", letterSpacing: "0.04em" }}
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg font-bold tracking-tight text-white">TOFFEE COUNCIL</h1>
+                <span className="px-2 py-0.5 text-[10px] font-mono uppercase tracking-widest bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded">COMMAND CENTER</span>
+              </div>
+              <p className="text-xs text-gray-500 font-mono">DUTY & ATTENDANCE MANAGEMENT SYSTEM</p>
+            </div>
+          </div>
+
+          {/* DIGITAL CLOCK & SYSTEM HEALTH */}
+          <div className="flex items-center gap-4 text-xs font-mono">
+            {/* Realtime Thailand Clock */}
+            <div className="bg-[#141722] border border-gray-800 rounded-lg px-3 py-1.5 flex items-center gap-3">
+              <Clock className="w-4 h-4 text-amber-400 animate-pulse" />
+              <div>
+                <span className="text-amber-400 font-bold tracking-wider">{formatBangkokTime(currentTime)}</span>
+                <span className="text-gray-500 block text-[10px]">{formatBangkokDate(currentTime)}</span>
+              </div>
+            </div>
+
+            {/* Database Connection Badge */}
+            <div className={`px-3 py-1.5 rounded-lg border flex items-center gap-2 ${
+              dbConnected 
+                ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-400' 
+                : 'bg-red-950/40 border-red-500/30 text-red-400'
+            }`}>
+              <span className={`w-2 h-2 rounded-full ${dbConnected ? 'bg-emerald-400 animate-ping' : 'bg-red-500'}`} />
+              <span className="font-semibold uppercase tracking-wider">{dbConnected ? 'SYSTEM ONLINE' : 'DISCONNECTED'}</span>
+            </div>
+
+            {/* Command Palette Button */}
+            <button
+              onClick={() => setCommandPaletteOpen(true)}
+              className="hidden lg:flex items-center gap-2 bg-[#141722] hover:bg-[#1e2233] border border-gray-800 text-gray-400 hover:text-white px-3 py-1.5 rounded-lg transition"
             >
-              {formatClock((now - new Date(mySession.clock_in).getTime()) / 1000)}
-            </div>
-            <p style={{ color: "#6b6142", fontSize: 11.5, letterSpacing: "0.08em", margin: "2px 0 22px" }}>
-              ชั่วโมง : นาที : วินาที
-            </p>
-
-            <div style={{ maxWidth: 260, margin: "0 auto 14px" }}>
-              <label className="tc-label">กรอกรหัสสมาชิกเพื่อออกเวร</label>
-              <input
-                className="tc-input"
-                type="password"
-                inputMode="numeric"
-                maxLength={6}
-                placeholder="••••"
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                style={{ textAlign: "center", letterSpacing: "0.3em" }}
-              />
-            </div>
-            {error && <p style={{ color: "#ff8a73", fontSize: 13, marginBottom: 12 }}>{error}</p>}
-            <button className="tc-btn tc-btn-danger" disabled={busy} onClick={handleClockOut} style={{ minWidth: 180 }}>
-              ออกเวร
+              <Terminal className="w-3.5 h-3.5 text-amber-400" />
+              <span>CMD</span>
+              <kbd className="bg-gray-900 border border-gray-700 px-1.5 py-0.5 text-[10px] rounded text-gray-400">Ctrl+K</kbd>
             </button>
           </div>
-        ) : (
-          <div style={{ maxWidth: 340, margin: "0 auto", textAlign: "center" }}>
-            <div style={{ marginBottom: 6, color: "#7cff6b", fontSize: 14 }}>🟢 พร้อมปฏิบัติหน้าที่</div>
-            <p style={{ color: "#9c8f66", fontSize: 13, margin: "0 0 20px" }}>เลือกชื่อและกรอกรหัสเพื่อเข้าเวร</p>
+        </div>
+      </header>
 
-            <div style={{ textAlign: "left", marginBottom: 14 }}>
-              <label className="tc-label">ชื่อสมาชิก</label>
-              <select className="tc-select" value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
-                <option value="">— เลือกชื่อของคุณ —</option>
-                {activeMembers.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}{m.position ? ` · ${m.position}` : ""}
-                  </option>
-                ))}
-              </select>
-              {activeMembers.length === 0 && (
-                <p style={{ color: "#6b6142", fontSize: 12, marginTop: 8 }}>
-                  ยังไม่มีรายชื่อสมาชิก — ให้ Admin เพิ่มชื่อในหลังบ้านก่อน
-                </p>
+      {/* MAIN LAYOUT */}
+      <main className="max-w-7xl mx-auto px-4 lg:px-8 py-6 space-y-6">
+
+        {/* NAVIGATION TABS */}
+        <div className="flex items-center gap-2 border-b border-gray-800/80 pb-3 overflow-x-auto scrollbar-none">
+          {[
+            { id: 'duty', label: 'เข้าเวร / ปฏิบัติหน้าที่', icon: Clock },
+            { id: 'monitor', label: `คนเข้าเวรอยู่ (${activeSessions.length})`, icon: Radio },
+            { id: 'history', label: 'ประวัติการเข้าเวร', icon: Activity },
+            { id: 'analytics', label: 'รายงาน & สถิติ', icon: BarChart3 },
+            { id: 'admin', label: 'ผู้ดูแลระบบ (Admin)', icon: Lock }
+          ].map(tab => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl font-medium text-sm whitespace-nowrap transition-all duration-200 ${
+                  isActive
+                    ? 'bg-gradient-to-r from-amber-500/20 to-amber-600/10 border border-amber-500/40 text-amber-300 shadow-[0_0_15px_rgba(212,175,55,0.1)]'
+                    : 'bg-[#12141d]/60 hover:bg-[#181b28] border border-transparent text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                <Icon className={`w-4 h-4 ${isActive ? 'text-amber-400' : 'text-gray-500'}`} />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ========================================== */}
+        {/* TAB 1: MEMBER DUTY CLOCK-IN                */}
+        {/* ========================================== */}
+        {activeTab === 'duty' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* MEMBER SELECTION CARD */}
+            <div className="lg:col-span-2 bg-[#12141d] border border-amber-500/20 rounded-2xl p-6 space-y-6 shadow-xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+              
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                    <UserCheck className="w-5 h-5 text-amber-400" />
+                    ลงชื่อเข้าเวรปฏิบัติหน้าที่
+                  </h2>
+                  <p className="text-xs text-gray-400 mt-1">เลือกรายชื่อของคุณและป้อนรหัส PIN เพื่อลงเวลาเข้าเวร</p>
+                </div>
+                <span className="px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-mono">
+                  {members.filter(m => m.status === 'active').length} สมาชิกพร้อมใช้งาน
+                </span>
+              </div>
+
+              {/* MEMBER DROPDOWN */}
+              <div className="space-y-3">
+                <label className="block text-xs font-mono uppercase tracking-wider text-gray-400">เลือกรายชื่อสมาชิกสภา</label>
+                <select
+                  value={selectedMemberId}
+                  onChange={(e) => setSelectedMemberId(e.target.value)}
+                  className="w-full bg-[#1a1d2b] border border-gray-700 focus:border-amber-400 rounded-xl px-4 py-3.5 text-white font-medium focus:outline-none focus:ring-1 focus:ring-amber-400 transition"
+                >
+                  <option value="">-- กรุณาเลือกรายชื่อสมาชิก --</option>
+                  {members.map(m => (
+                    <option key={m.id} value={m.id} disabled={m.status === 'inactive'}>
+                      {m.name} ({m.position}) {m.status === 'inactive' ? '[ถูกระงับ]' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* CLOCK IN BUTTON */}
+              <button
+                onClick={() => {
+                  if (!selectedMemberId) {
+                    addToast('กรุณาเลือกรายชื่อสมาชิกก่อน', 'warning');
+                    return;
+                  }
+                  setPinModalOpen(true);
+                }}
+                className="w-full py-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-extrabold rounded-xl shadow-lg shadow-amber-500/10 transition transform active:scale-[0.99] flex items-center justify-center gap-2 text-base"
+              >
+                <Key className="w-5 h-5" />
+                <span>ยืนยันรหัส PIN และเริ่มเข้าเวร (CLOCK IN)</span>
+              </button>
+
+              {/* CURRENT MEMBER ACTIVE STATUS IF ON DUTY */}
+              {selectedMemberId && activeSessions.some(s => s.member_id === selectedMemberId) && (
+                <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="w-3 h-3 rounded-full bg-amber-400 animate-ping" />
+                    <span className="text-sm text-amber-300 font-medium">คุณกำลังอยู่ระหว่างการปฏิบัติหน้าที่</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const sess = activeSessions.find(s => s.member_id === selectedMemberId);
+                      if (sess) setFocusModeSession(sess);
+                    }}
+                    className="px-3 py-1.5 bg-amber-400 text-black font-bold text-xs rounded-lg hover:bg-amber-300 transition"
+                  >
+                    เปิด Focus Mode
+                  </button>
+                </div>
               )}
             </div>
 
-            <div style={{ textAlign: "left", marginBottom: 18 }}>
-              <label className="tc-label">รหัสสมาชิก (PIN)</label>
+            {/* QUICK STATS SIDE PANEL */}
+            <div className="space-y-4">
+              <div className="bg-[#12141d] border border-gray-800 rounded-2xl p-5 space-y-4">
+                <h3 className="text-xs font-mono uppercase tracking-wider text-gray-400 flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-amber-400" />
+                  COMMAND SUMMARY
+                </h3>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-[#181b28] p-3.5 rounded-xl border border-gray-800">
+                    <span className="text-gray-500 text-[10px] font-mono block">กำลังปฏิบัติหน้าที่</span>
+                    <span className="text-2xl font-bold font-mono text-emerald-400">{stats.activeDutyCount}</span>
+                  </div>
+                  <div className="bg-[#181b28] p-3.5 rounded-xl border border-gray-800">
+                    <span className="text-gray-500 text-[10px] font-mono block">สมาชิกทั้งหมด</span>
+                    <span className="text-2xl font-bold font-mono text-white">{stats.totalMembers}</span>
+                  </div>
+                  <div className="bg-[#181b28] p-3.5 rounded-xl border border-gray-800">
+                    <span className="text-gray-500 text-[10px] font-mono block">ชั่วโมงวันนี้</span>
+                    <span className="text-xl font-bold font-mono text-amber-400">{stats.todayHoursFormatted}</span>
+                  </div>
+                  <div className="bg-[#181b28] p-3.5 rounded-xl border border-gray-800">
+                    <span className="text-gray-500 text-[10px] font-mono block">ชั่วโมงเดือนนี้</span>
+                    <span className="text-xl font-bold font-mono text-amber-400">{stats.monthHoursFormatted}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* LEADERBOARD BRIEF */}
+              <div className="bg-[#12141d] border border-gray-800 rounded-2xl p-5 space-y-3">
+                <h3 className="text-xs font-mono uppercase tracking-wider text-gray-400 flex items-center gap-2">
+                  <Award className="w-4 h-4 text-amber-400" />
+                  TOP DUTY HOURS
+                </h3>
+                <div className="space-y-2">
+                  {stats.leaderboard.length === 0 ? (
+                    <p className="text-xs text-gray-600 text-center py-2">ยังไม่มีข้อมูลประวัติการปฏิบัติหน้าที่</p>
+                  ) : (
+                    stats.leaderboard.map((item, idx) => (
+                      <div key={idx} className="flex items-center justify-between text-xs py-1.5 border-b border-gray-800/60 last:border-0">
+                        <span className="text-gray-300 font-medium">{idx + 1}. {item.name}</span>
+                        <span className="font-mono text-amber-400 font-bold">{formatDuration(item.sec)}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================== */}
+        {/* TAB 2: LIVE DUTY MONITOR                   */}
+        {/* ========================================== */}
+        {activeTab === 'monitor' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                  <Radio className="w-5 h-5 text-emerald-400 animate-pulse" />
+                  LIVE DUTY MONITORING
+                </h2>
+                <p className="text-xs text-gray-400 mt-1">รายชื่อสมาชิกที่กำลังปฏิบัติหน้าที่อยู่ ณ ขณะนี้</p>
+              </div>
+              <button
+                onClick={fetchData}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141722] hover:bg-[#1c2030] border border-gray-800 rounded-lg text-xs text-gray-400 hover:text-white transition"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>รีเฟรชข้อมูล</span>
+              </button>
+            </div>
+
+            {activeSessions.length === 0 ? (
+              <div className="bg-[#12141d] border border-gray-800 rounded-2xl p-12 text-center space-y-3">
+                <Shield className="w-12 h-12 text-gray-600 mx-auto opacity-50" />
+                <h3 className="text-base font-semibold text-gray-400">NO ACTIVE DUTY</h3>
+                <p className="text-xs text-gray-600">ขณะนี้ไม่มีสมาชิกปฏิบัติหน้าที่ในระบบ</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {activeSessions.map(session => {
+                  const clockInTime = new Date(session.clock_in);
+                  const liveSecs = Math.max(0, Math.floor((currentTime - clockInTime) / 1000));
+
+                  return (
+                    <div
+                      key={session.id}
+                      className="bg-[#12141d] border border-amber-500/30 hover:border-amber-500/60 rounded-2xl p-6 space-y-5 transition-all shadow-xl relative overflow-hidden group"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
+                          <div>
+                            <h3 className="text-lg font-bold text-white">{session.member_name}</h3>
+                            <span className="text-xs text-gray-500 font-mono">เริ่มเมื่อ {formatBangkokTime(clockInTime)} น.</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* TIMER DISPLAY CARD */}
+                      <div className="bg-[#090a0f] border border-gray-800 rounded-xl p-4 text-center">
+                        <span className="text-[10px] text-gray-500 font-mono tracking-widest uppercase block mb-1">LIVE DURATION</span>
+                        <span className="text-3xl font-extrabold font-mono text-amber-400 tracking-wider">
+                          {formatDuration(liveSecs)}
+                        </span>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setFocusModeSession(session)}
+                          className="flex-1 py-2.5 bg-[#1a1d2b] hover:bg-[#24283b] text-amber-400 font-semibold text-xs rounded-xl border border-amber-500/20 transition flex items-center justify-center gap-1.5"
+                        >
+                          <Maximize2 className="w-3.5 h-3.5" />
+                          <span>Focus Mode</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleClockOut(session.id)}
+                          disabled={loading}
+                          className="flex-1 py-2.5 bg-red-950/40 hover:bg-red-900/60 text-red-300 font-semibold text-xs rounded-xl border border-red-500/30 transition flex items-center justify-center gap-1.5"
+                        >
+                          <LogOut className="w-3.5 h-3.5" />
+                          <span>ออกเวร</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ========================================== */}
+        {/* TAB 3: DUTY HISTORY TABLE                  */}
+        {/* ========================================== */}
+        {activeTab === 'history' && (
+          <div className="space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-amber-400" />
+                  DUTY RECORDS & HISTORY
+                </h2>
+                <p className="text-xs text-gray-400 mt-1">ประวัติการปฏิบัติหน้าที่ทั้งหมดในระบบ</p>
+              </div>
+
+              {/* SEARCH & FILTERS */}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="relative">
+                  <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="ค้นหาชื่อสมาชิก..."
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                    className="bg-[#12141d] border border-gray-800 focus:border-amber-400 rounded-xl pl-9 pr-4 py-2 text-xs text-white focus:outline-none transition w-48"
+                  />
+                </div>
+
+                <select
+                  value={historyFilterMember}
+                  onChange={(e) => setHistoryFilterMember(e.target.value)}
+                  className="bg-[#12141d] border border-gray-800 focus:border-amber-400 rounded-xl px-3 py-2 text-xs text-white focus:outline-none transition"
+                >
+                  <option value="all">สมาชิกทั้งหมด</option>
+                  {members.map(m => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* TABLE */}
+            <div className="bg-[#12141d] border border-gray-800 rounded-2xl overflow-hidden shadow-xl">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-gray-300">
+                  <thead className="bg-[#181b28] text-gray-400 font-mono uppercase tracking-wider text-[10px] border-b border-gray-800">
+                    <tr>
+                      <th className="px-6 py-4">สมาชิก</th>
+                      <th className="px-6 py-4">เข้าเวร (Clock In)</th>
+                      <th className="px-6 py-4">ออกเวร (Clock Out)</th>
+                      <th className="px-6 py-4">รวมระยะเวลา</th>
+                      <th className="px-6 py-4">ทำรายการโดย</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800/60 font-mono">
+                    {filteredHistory.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" className="px-6 py-8 text-center text-gray-600">
+                          ไม่พบประวัติการเข้าเวรตามเงื่อนไขที่เลือก
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredHistory.map(session => (
+                        <tr key={session.id} className="hover:bg-[#161925] transition">
+                          <td className="px-6 py-4 font-sans font-semibold text-white">
+                            {session.member_name}
+                          </td>
+                          <td className="px-6 py-4 text-gray-400">
+                            {new Date(session.clock_in).toLocaleString('th-TH')}
+                          </td>
+                          <td className="px-6 py-4 text-gray-400">
+                            {session.clock_out ? new Date(session.clock_out).toLocaleString('th-TH') : '-'}
+                          </td>
+                          <td className="px-6 py-4 text-amber-400 font-bold">
+                            {formatDuration(session.duration_seconds || 0)}
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-sans ${
+                              session.ended_by === 'admin' 
+                                ? 'bg-purple-950/60 border border-purple-500/30 text-purple-300' 
+                                : 'bg-gray-800 text-gray-400'
+                            }`}>
+                              {session.ended_by || 'member'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================== */}
+        {/* TAB 4: ANALYTICS & REPORTS                 */}
+        {/* ========================================== */}
+        {activeTab === 'analytics' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-amber-400" />
+                COMMAND ANALYTICS & PERFORMANCE
+              </h2>
+              <p className="text-xs text-gray-400 mt-1">สรุปภาพรวมสถิติชั่วโมงการทำงานและการปฏิบัติหน้าที่ของสภา</p>
+            </div>
+
+            {/* KPI OVERVIEW CARDS */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-[#12141d] border border-gray-800 p-5 rounded-2xl">
+                <span className="text-xs text-gray-500 font-mono uppercase block">TOTAL SESSIONS</span>
+                <span className="text-3xl font-extrabold text-white font-mono mt-2 block">{historySessions.length}</span>
+                <span className="text-[10px] text-gray-500 mt-1 block">รายการปฏิบัติหน้าที่ทั้งหมด</span>
+              </div>
+              <div className="bg-[#12141d] border border-gray-800 p-5 rounded-2xl">
+                <span className="text-xs text-gray-500 font-mono uppercase block">ACTIVE MEMBERS</span>
+                <span className="text-3xl font-extrabold text-emerald-400 font-mono mt-2 block">{stats.totalMembers}</span>
+                <span className="text-[10px] text-gray-500 mt-1 block">สมาชิกในระบบปัจจุบัน</span>
+              </div>
+              <div className="bg-[#12141d] border border-gray-800 p-5 rounded-2xl">
+                <span className="text-xs text-gray-500 font-mono uppercase block">TODAY'S DUTY</span>
+                <span className="text-3xl font-extrabold text-amber-400 font-mono mt-2 block">{stats.todayHoursFormatted}</span>
+                <span className="text-[10px] text-gray-500 mt-1 block">ชั่วโมงการปฏิบัติหน้าที่วันนี้</span>
+              </div>
+              <div className="bg-[#12141d] border border-gray-800 p-5 rounded-2xl">
+                <span className="text-xs text-gray-500 font-mono uppercase block">MONTHLY DUTY</span>
+                <span className="text-3xl font-extrabold text-amber-400 font-mono mt-2 block">{stats.monthHoursFormatted}</span>
+                <span className="text-[10px] text-gray-500 mt-1 block">ชั่วโมงรวมประจำเดือนนี้</span>
+              </div>
+            </div>
+
+            {/* PERFORMANCE LEADERBOARD TABLE */}
+            <div className="bg-[#12141d] border border-gray-800 rounded-2xl p-6 space-y-4">
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono flex items-center gap-2">
+                <Award className="w-4 h-4 text-amber-400" />
+                MEMBER PERFORMANCE RANKING (TOTAL HOURS)
+              </h3>
+
+              <div className="space-y-3">
+                {stats.leaderboard.map((item, index) => (
+                  <div key={index} className="flex items-center justify-between p-4 bg-[#181b28] rounded-xl border border-gray-800/80">
+                    <div className="flex items-center gap-4">
+                      <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm font-mono ${
+                        index === 0 ? 'bg-amber-400 text-black shadow-lg shadow-amber-400/20' :
+                        index === 1 ? 'bg-gray-300 text-black' :
+                        index === 2 ? 'bg-amber-700 text-white' : 'bg-gray-800 text-gray-400'
+                      }`}>
+                        #{index + 1}
+                      </span>
+                      <div>
+                        <span className="text-sm font-bold text-white block">{item.name}</span>
+                        <span className="text-[10px] text-gray-500 font-mono">COUNCIL MEMBER</span>
+                      </div>
+                    </div>
+                    <span className="text-base font-bold font-mono text-amber-400">
+                      {formatDuration(item.sec)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================== */}
+        {/* TAB 5: ADMIN MANAGEMENT                    */}
+        {/* ========================================== */}
+        {activeTab === 'admin' && (
+          <div className="space-y-6">
+            {!isAdminLoggedIn ? (
+              /* ADMIN LOGIN FORM */
+              <div className="max-w-md mx-auto bg-[#12141d] border border-amber-500/20 rounded-2xl p-8 space-y-6 shadow-2xl relative overflow-hidden">
+                <div className="text-center space-y-2">
+                  <div className="w-12 h-12 bg-amber-500/10 border border-amber-500/30 rounded-full flex items-center justify-center mx-auto text-amber-400">
+                    <Lock className="w-6 h-6" />
+                  </div>
+                  <h2 className="text-xl font-bold text-white">ADMIN COMMAND ACCESS</h2>
+                  <p className="text-xs text-gray-400">กรุณากรอกรหัสผ่านเพื่อเข้าสู่ระบบผู้ดูแลสภา</p>
+                </div>
+
+                <form onSubmit={handleAdminLogin} className="space-y-4">
+                  <div>
+                    <input
+                      type="password"
+                      placeholder="กรอกรหัสผ่านแอดมิน..."
+                      value={adminPasswordInput}
+                      onChange={(e) => setAdminPasswordInput(e.target.value)}
+                      className="w-full bg-[#1a1d2b] border border-gray-700 focus:border-amber-400 rounded-xl px-4 py-3 text-white focus:outline-none transition text-center text-lg font-mono tracking-widest"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-extrabold rounded-xl shadow-lg transition"
+                  >
+                    เข้าสู่ระบบแอดมิน
+                  </button>
+                </form>
+              </div>
+            ) : (
+              /* ADMIN MANAGEMENT DASHBOARD */
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                      <Shield className="w-5 h-5 text-amber-400" />
+                      ADMIN MEMBER MANAGEMENT
+                    </h2>
+                    <p className="text-xs text-gray-400 mt-1">จัดการเพิ่ม แก้ไข และเปิด/ปิดสถานะสมาชิกสภา</p>
+                  </div>
+                  <button
+                    onClick={() => setIsAdminLoggedIn(false)}
+                    className="px-3 py-1.5 bg-red-950/40 border border-red-500/30 text-red-300 text-xs rounded-lg hover:bg-red-900/60 transition"
+                  >
+                    ออกจากระบบแอดมิน
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  
+                  {/* ADD NEW MEMBER FORM */}
+                  <div className="bg-[#12141d] border border-gray-800 rounded-2xl p-6 space-y-4 h-fit">
+                    <h3 className="text-sm font-bold text-white uppercase font-mono flex items-center gap-2">
+                      <UserPlus className="w-4 h-4 text-amber-400" />
+                      เพิ่มสมาชิกใหม่
+                    </h3>
+                    
+                    <form onSubmit={handleAddMember} className="space-y-3">
+                      <div>
+                        <label className="block text-[10px] font-mono uppercase text-gray-400 mb-1">ชื่อสมาชิก</label>
+                        <input
+                          type="text"
+                          placeholder="ชื่อ-นามสกุล หรือ ฉายา..."
+                          value={newMemberName}
+                          onChange={(e) => setNewMemberName(e.target.value)}
+                          className="w-full bg-[#1a1d2b] border border-gray-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-mono uppercase text-gray-400 mb-1">ตำแหน่ง</label>
+                        <select
+                          value={newMemberPosition}
+                          onChange={(e) => setNewMemberPosition(e.target.value)}
+                          className="w-full bg-[#1a1d2b] border border-gray-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition"
+                        >
+                          <option value="ประธานสภา">ประธานสภา</option>
+                          <option value="รองประธานสภา">รองประธานสภา</option>
+                          <option value="เลขาธิการ">เลขาธิการ</option>
+                          <option value="สมาชิกสภา">สมาชิกสภา</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-mono uppercase text-gray-400 mb-1">รหัส PIN (4-6 หลัก)</label>
+                        <input
+                          type="password"
+                          placeholder="กำหนด PIN..."
+                          value={newMemberPin}
+                          onChange={(e) => setNewMemberPin(e.target.value)}
+                          className="w-full bg-[#1a1d2b] border border-gray-700 focus:border-amber-400 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition font-mono"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={loading}
+                        className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-xl shadow transition"
+                      >
+                        เพิ่มสมาชิกเข้าสู่ระบบ
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* MEMBER LIST & STATUS CONTROL */}
+                  <div className="lg:col-span-2 bg-[#12141d] border border-gray-800 rounded-2xl p-6 space-y-4">
+                    <h3 className="text-sm font-bold text-white uppercase font-mono flex items-center gap-2">
+                      <Users className="w-4 h-4 text-amber-400" />
+                      รายชื่อสมาชิกทั้งหมด ({members.length})
+                    </h3>
+
+                    <div className="divide-y divide-gray-800">
+                      {members.map(member => (
+                        <div key={member.id} className="py-3.5 flex items-center justify-between gap-4">
+                          <div>
+                            <span className="text-sm font-bold text-white block">{member.name}</span>
+                            <span className="text-[10px] text-gray-500 font-mono">
+                              ตำแหน่ง: {member.position} | PIN: ****
+                            </span>
+                          </div>
+
+                          <button
+                            onClick={() => toggleMemberStatus(member.id, member.status)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+                              member.status === 'active'
+                                ? 'bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-900/60'
+                                : 'bg-red-950/40 border border-red-500/30 text-red-300 hover:bg-red-900/60'
+                            }`}
+                          >
+                            {member.status === 'active' ? <UserCheck className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5" />}
+                            <span>{member.status === 'active' ? 'ACTIVE' : 'INACTIVE'}</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+      </main>
+
+      {/* ========================================== */}
+      {/* MODAL: PIN VERIFICATION                    */}
+      {/* ========================================== */}
+      {pinModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#12141d] border border-amber-500/30 rounded-2xl p-6 max-w-sm w-full space-y-5 shadow-2xl relative">
+            <button
+              onClick={() => { setPinModalOpen(false); setPinInput(''); }}
+              className="absolute top-4 right-4 text-gray-500 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center space-y-1">
+              <Key className="w-8 h-8 text-amber-400 mx-auto" />
+              <h3 className="text-base font-bold text-white">ยืนยันรหัส PIN เพื่อเข้าเวร</h3>
+              <p className="text-xs text-gray-400">
+                {members.find(m => m.id === selectedMemberId)?.name}
+              </p>
+            </div>
+
+            <div>
               <input
-                className="tc-input"
                 type="password"
-                inputMode="numeric"
-                maxLength={6}
-                placeholder="••••"
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                style={{ textAlign: "center", letterSpacing: "0.3em" }}
+                placeholder="กรอก PIN..."
+                autoFocus
+                value={pinInput}
+                onChange={(e) => setPinInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleClockIn()}
+                className="w-full bg-[#1a1d2b] border border-gray-700 focus:border-amber-400 rounded-xl px-4 py-3 text-center text-xl text-white font-mono tracking-widest focus:outline-none transition"
               />
             </div>
 
-            {error && <p style={{ color: "#ff8a73", fontSize: 13, marginBottom: 12 }}>{error}</p>}
-
             <button
-              className="tc-btn tc-btn-primary"
-              disabled={busy || !selectedId}
               onClick={handleClockIn}
-              style={{ width: "100%", fontSize: 16 }}
+              disabled={loading}
+              className="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-600 text-black font-extrabold text-sm rounded-xl shadow transition"
             >
-              เข้าเวร
+              ยืนยันเข้าเวร
             </button>
           </div>
-        )}
-      </div>
-
-      {/* live public board */}
-      <div className="tc-panel" style={{ padding: "20px 24px" }}>
-        <h3 style={{ margin: "0 0 14px", fontSize: 15, color: "#f4d160", letterSpacing: "0.04em" }}>
-          🟢 สมาชิกที่กำลังปฏิบัติหน้าที่
-        </h3>
-        {activeSessions.length === 0 ? (
-          <p style={{ color: "#6b6142", fontSize: 13.5 }}>ยังไม่มีใครเข้าเวรในขณะนี้</p>
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table className="tc-table">
-              <thead>
-                <tr>
-                  <th>สมาชิก</th>
-                  <th>เข้าเวลา</th>
-                  <th style={{ textAlign: "right" }}>ปฏิบัติมาแล้ว</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activeSessions.map((s) => (
-                  <tr key={s.id}>
-                    <td>{s.member_name}</td>
-                    <td>{timeLabelBangkok(s.clock_in)}</td>
-                    <td className="tc-mono" style={{ textAlign: "right", color: "#f4d160" }}>
-                      {formatThaiDuration((now - new Date(s.clock_in).getTime()) / 1000)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- admin view ---------------- */
-
-function AdminView(props) {
-  const { members, sessions, adminPassword, addMember, updateMember, updateSession, persistAdminPassword, now } = props;
-  const [authed, setAuthed] = useState(false);
-  const [pwInput, setPwInput] = useState("");
-  const [loginError, setLoginError] = useState("");
-
-  if (!authed) {
-    return (
-      <div className="tc-panel" style={{ padding: 32, maxWidth: 340, margin: "0 auto" }}>
-        <h2 style={{ margin: "0 0 4px", fontSize: 20, color: "#f4d160", textAlign: "center" }}>COUNCIL ADMIN</h2>
-        <p style={{ color: "#6b6142", fontSize: 12.5, textAlign: "center", margin: "0 0 20px" }}>
-          เข้าสู่ระบบหลังบ้าน
-        </p>
-        <label className="tc-label">รหัสผ่านผู้ดูแล</label>
-        <input
-          className="tc-input"
-          type="password"
-          value={pwInput}
-          onChange={(e) => setPwInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              if (pwInput === adminPassword) { setAuthed(true); setLoginError(""); }
-              else setLoginError("รหัสผ่านไม่ถูกต้อง");
-            }
-          }}
-          style={{ marginBottom: 14 }}
-        />
-        {loginError && <p style={{ color: "#ff8a73", fontSize: 12.5, marginBottom: 12 }}>{loginError}</p>}
-        <button
-          className="tc-btn tc-btn-primary"
-          style={{ width: "100%" }}
-          onClick={() => {
-            if (pwInput === adminPassword) { setAuthed(true); setLoginError(""); }
-            else setLoginError("รหัสผ่านไม่ถูกต้อง");
-          }}
-        >
-          เข้าสู่ระบบ
-        </button>
-        <p style={{ color: "#4a4327", fontSize: 11, textAlign: "center", marginTop: 14 }}>
-          รหัสเริ่มต้น: council2026
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <AdminDashboard
-      members={members}
-      sessions={sessions}
-      addMember={addMember}
-      updateMember={updateMember}
-      updateSession={updateSession}
-      persistAdminPassword={persistAdminPassword}
-      now={now}
-      onLogout={() => { setAuthed(false); setPwInput(""); }}
-    />
-  );
-}
-
-function AdminDashboard({ members, sessions, addMember, updateMember, updateSession, persistAdminPassword, now, onLogout }) {
-  const [tab, setTab] = useState("dashboard"); // dashboard | members | history | settings
-  const activeSessions = sessions.filter((s) => !s.clock_out);
-  const todaysSeconds = sessions.reduce((sum, s) => {
-    if (dateKeyBangkok(s.clock_in) !== todayKeyBangkok()) return sum;
-    if (s.clock_out) return sum + s.duration_seconds;
-    return sum + (now - new Date(s.clock_in).getTime()) / 1000;
-  }, 0);
-
-  const forceClockOut = async (sessionId) => {
-    const session = sessions.find((s) => s.id === sessionId);
-    if (!session) return;
-    const clock_out = new Date().toISOString();
-    const duration_seconds = Math.floor((new Date(clock_out) - new Date(session.clock_in)) / 1000);
-    await updateSession(sessionId, { clock_out, duration_seconds, ended_by: "admin" });
-  };
-
-  const tabs = [
-    ["dashboard", "📊 Dashboard"],
-    ["members", "👥 สมาชิก"],
-    ["history", "📜 ประวัติ"],
-    ["settings", "⚙️ ตั้งค่า"],
-  ];
-
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {tabs.map(([key, label]) => (
-            <span key={key} className={`tc-tab ${tab === key ? "active" : ""}`} onClick={() => setTab(key)}>
-              {label}
-            </span>
-          ))}
         </div>
-        <button className="tc-btn tc-btn-sm" onClick={onLogout}>ออกจากระบบ</button>
-      </div>
-
-      {tab === "dashboard" && (
-        <DashboardTab
-          members={members}
-          activeSessions={activeSessions}
-          todaysSeconds={todaysSeconds}
-          now={now}
-          forceClockOut={forceClockOut}
-        />
       )}
-      {tab === "members" && <MembersTab members={members} addMember={addMember} updateMember={updateMember} />}
-      {tab === "history" && <HistoryTab members={members} sessions={sessions} />}
-      {tab === "settings" && <SettingsTab persistAdminPassword={persistAdminPassword} />}
-    </div>
-  );
-}
 
-function StatCard({ label, value, accent }) {
-  return (
-    <div className="tc-panel" style={{ padding: "18px 20px", flex: "1 1 140px" }}>
-      <div style={{ fontSize: 12, color: "#9c8f66", marginBottom: 6 }}>{label}</div>
-      <div className="tc-mono" style={{ fontSize: 26, fontWeight: 700, color: accent || "#f4d160" }}>{value}</div>
-    </div>
-  );
-}
-
-function DashboardTab({ members, activeSessions, todaysSeconds, now, forceClockOut }) {
-  return (
-    <div style={{ display: "grid", gap: 20 }}>
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-        <StatCard label="👥 สมาชิกทั้งหมด" value={members.filter((m) => m.status === "active").length} />
-        <StatCard label="🟢 กำลังเข้าเวร" value={activeSessions.length} accent="#7cff6b" />
-        <StatCard label="⏱️ วันนี้รวม" value={formatThaiDuration(todaysSeconds)} />
-      </div>
-
-      <div className="tc-panel" style={{ padding: "20px 24px" }}>
-        <h3 style={{ margin: "0 0 14px", fontSize: 15, color: "#f4d160" }}>ผู้ที่กำลังเข้าเวร</h3>
-        {activeSessions.length === 0 ? (
-          <p style={{ color: "#6b6142", fontSize: 13.5 }}>ไม่มีสมาชิกเข้าเวรในขณะนี้</p>
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table className="tc-table">
-              <thead>
-                <tr><th>สมาชิก</th><th>เข้าเวลา</th><th>ปฏิบัติมาแล้ว</th><th></th></tr>
-              </thead>
-              <tbody>
-                {activeSessions.map((s) => (
-                  <tr key={s.id}>
-                    <td>{s.member_name}</td>
-                    <td>{timeLabelBangkok(s.clock_in)}</td>
-                    <td className="tc-mono" style={{ color: "#f4d160" }}>
-                      {formatThaiDuration((now - new Date(s.clock_in).getTime()) / 1000)}
-                    </td>
-                    <td>
-                      <button className="tc-btn tc-btn-sm tc-btn-danger" onClick={() => forceClockOut(s.id)}>
-                        บังคับออกเวร
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function MembersTab({ members, addMember: createMember, updateMember }) {
-  const [name, setName] = useState("");
-  const [position, setPosition] = useState("สมาชิกสภา");
-  const [pin, setPin] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const addMember = async () => {
-    setError("");
-    if (!name.trim()) { setError("กรุณากรอกชื่อ"); return; }
-    if (!/^\d{4,6}$/.test(pin)) { setError("รหัส PIN ต้องเป็นตัวเลข 4-6 หลัก"); return; }
-    setBusy(true);
-    try {
-      await createMember({
-        name: name.trim(),
-        position: position.trim() || "สมาชิกสภา",
-        pin,
-        status: "active",
-      });
-      setName(""); setPin("");
-    } catch (e) {
-      setError("เพิ่มสมาชิกไม่สำเร็จ ลองใหม่อีกครั้ง");
-    }
-    setBusy(false);
-  };
-
-  const toggleStatus = async (id, current) => {
-    await updateMember(id, { status: current === "active" ? "inactive" : "active" });
-  };
-
-  const updatePin = async (id, newPin) => {
-    if (!/^\d{4,6}$/.test(newPin)) return;
-    await updateMember(id, { pin: newPin });
-  };
-
-  return (
-    <div style={{ display: "grid", gap: 20 }}>
-      <div className="tc-panel" style={{ padding: "20px 24px" }}>
-        <h3 style={{ margin: "0 0 16px", fontSize: 15, color: "#f4d160" }}>เพิ่มสมาชิกใหม่</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1.4fr 1fr auto", gap: 12, alignItems: "end" }}>
-          <div>
-            <label className="tc-label">ชื่อ</label>
-            <input className="tc-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="เช่น นาย A" />
-          </div>
-          <div>
-            <label className="tc-label">ตำแหน่ง</label>
-            <select className="tc-select" value={position} onChange={(e) => setPosition(e.target.value)}>
-              <option>สมาชิกสภา</option>
-              <option>เลขานุการ</option>
-              <option>ประธานสภา</option>
-              <option>รองประธานสภา</option>
-            </select>
-          </div>
-          <div>
-            <label className="tc-label">PIN</label>
-            <input className="tc-input" inputMode="numeric" maxLength={6} value={pin} onChange={(e) => setPin(e.target.value)} placeholder="4-6 หลัก" />
-          </div>
-          <button className="tc-btn tc-btn-primary" disabled={busy} onClick={addMember}>เพิ่มสมาชิก</button>
-        </div>
-        {error && <p style={{ color: "#ff8a73", fontSize: 12.5, marginTop: 10 }}>{error}</p>}
-      </div>
-
-      <div className="tc-panel" style={{ padding: "20px 24px" }}>
-        <h3 style={{ margin: "0 0 14px", fontSize: 15, color: "#f4d160" }}>รายชื่อสมาชิกทั้งหมด ({members.length})</h3>
-        {members.length === 0 ? (
-          <p style={{ color: "#6b6142", fontSize: 13.5 }}>ยังไม่มีสมาชิก</p>
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table className="tc-table">
-              <thead>
-                <tr><th>ชื่อ</th><th>ตำแหน่ง</th><th>PIN</th><th>สถานะ</th><th></th></tr>
-              </thead>
-              <tbody>
-                {members.map((m) => (
-                  <tr key={m.id}>
-                    <td>{m.name}</td>
-                    <td style={{ color: "#9c8f66" }}>{m.position}</td>
-                    <td>
-                      <input
-                        className="tc-input"
-                        style={{ width: 90, padding: "6px 10px" }}
-                        defaultValue={m.pin}
-                        onBlur={(e) => updatePin(m.id, e.target.value)}
-                      />
-                    </td>
-                    <td>
-                      <span className={`tc-badge ${m.status === "active" ? "on" : ""}`}>
-                        {m.status === "active" ? "ใช้งานอยู่" : "ปิดใช้งาน"}
-                      </span>
-                    </td>
-                    <td>
-                      <button className="tc-btn tc-btn-sm" onClick={() => toggleStatus(m.id, m.status)}>
-                        {m.status === "active" ? "ปิดใช้งาน" : "เปิดใช้งาน"}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function HistoryTab({ members, sessions }) {
-  const [memberFilter, setMemberFilter] = useState("");
-  const [dateFilter, setDateFilter] = useState("");
-
-  const filtered = sessions
-    .filter((s) => Boolean(s.clock_out)) // only completed sessions
-    .filter((s) => (memberFilter ? s.member_id === memberFilter : true))
-    .filter((s) => (dateFilter ? dateKeyBangkok(s.clock_in) === dateFilter : true))
-    .sort((a, b) => new Date(b.clock_in) - new Date(a.clock_in));
-
-  // group by date for a readable report
-  const grouped = {};
-  filtered.forEach((s) => {
-    const key = dateKeyBangkok(s.clock_in);
-    grouped[key] = grouped[key] || [];
-    grouped[key].push(s);
-  });
-  const dateKeys = Object.keys(grouped).sort((a, b) => (a < b ? 1 : -1));
-
-  return (
-    <div style={{ display: "grid", gap: 20 }}>
-      <div className="tc-panel" style={{ padding: "18px 24px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 12, alignItems: "end" }}>
-          <div>
-            <label className="tc-label">ค้นหาสมาชิก</label>
-            <select className="tc-select" value={memberFilter} onChange={(e) => setMemberFilter(e.target.value)}>
-              <option value="">ทุกคน</option>
-              {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="tc-label">วันที่</label>
-            <input
-              className="tc-input"
-              type="date"
-              onChange={(e) => setDateFilter(e.target.value)}
-            />
-          </div>
-          <button className="tc-btn tc-btn-sm" onClick={() => { setMemberFilter(""); setDateFilter(""); }}>ล้างตัวกรอง</button>
-        </div>
-      </div>
-
-      {dateKeys.length === 0 ? (
-        <p style={{ color: "#6b6142", fontSize: 13.5, textAlign: "center" }}>ไม่พบประวัติการเข้าเวร</p>
-      ) : (
-        dateKeys.map((key) => {
-          const daySessions = grouped[key];
-          const dayTotal = daySessions.reduce((sum, s) => sum + s.duration_seconds, 0);
-          return (
-            <div key={key} className="tc-panel" style={{ padding: "20px 24px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-                <h4 style={{ margin: 0, fontSize: 14.5, color: "#f4d160" }}>{dateLabelBangkok(key)}</h4>
-                <span className="tc-mono" style={{ fontSize: 13, color: "#9c8f66" }}>รวม {formatThaiDuration(dayTotal)}</span>
+      {/* ========================================== */}
+      {/* MODAL: COMMAND PALETTE (CTRL + K)          */}
+      {/* ========================================== */}
+      {commandPaletteOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center pt-20 p-4">
+          <div className="bg-[#12141d] border border-amber-500/30 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl">
+            <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-amber-400 text-xs font-mono">
+                <Terminal className="w-4 h-4" />
+                <span>COMMAND PALETTE</span>
               </div>
-              <table className="tc-table">
-                <thead>
-                  <tr><th>สมาชิก</th><th>เข้า</th><th>ออก</th><th style={{ textAlign: "right" }}>รวม</th></tr>
-                </thead>
-                <tbody>
-                  {daySessions.map((s) => (
-                    <tr key={s.id}>
-                      <td>{s.member_name}</td>
-                      <td>{timeLabelBangkok(s.clock_in)}</td>
-                      <td>{timeLabelBangkok(s.clock_out)}{s.ended_by === "admin" ? " (admin)" : ""}</td>
-                      <td className="tc-mono" style={{ textAlign: "right", color: "#f4d160" }}>{formatThaiDuration(s.duration_seconds)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <kbd className="text-[10px] text-gray-500 font-mono">ESC เพื่อปิด</kbd>
             </div>
-          );
-        })
+
+            <div className="p-2 space-y-1">
+              {[
+                { label: 'ไปยังหน้า ลงชื่อเข้าเวร', tab: 'duty' },
+                { label: 'ไปยังหน้า คนเข้าเวรอยู่ (Live Monitor)', tab: 'monitor' },
+                { label: 'ไปยังหน้า ประวัติการเข้าเวร (History)', tab: 'history' },
+                { label: 'ไปยังหน้า รายงานสถิติ (Analytics)', tab: 'analytics' },
+                { label: 'ไปยังหน้า ผู้ดูแลระบบ (Admin Management)', tab: 'admin' }
+              ].map((cmd, i) => (
+                <button
+                  key={i}
+                  onClick={() => {
+                    setActiveTab(cmd.tab);
+                    setCommandPaletteOpen(false);
+                  }}
+                  className="w-full text-left px-4 py-3 rounded-xl hover:bg-[#1a1d2b] text-sm text-gray-300 hover:text-amber-300 transition flex items-center justify-between"
+                >
+                  <span>{cmd.label}</span>
+                  <ChevronRight className="w-4 h-4 text-gray-600" />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
-    </div>
-  );
-}
 
-function SettingsTab({ persistAdminPassword }) {
-  const [newPw, setNewPw] = useState("");
-  const [confirmPw, setConfirmPw] = useState("");
-  const [msg, setMsg] = useState("");
-
-  const save = async () => {
-    setMsg("");
-    if (newPw.length < 4) { setMsg("รหัสผ่านต้องมีอย่างน้อย 4 ตัวอักษร"); return; }
-    if (newPw !== confirmPw) { setMsg("รหัสผ่านไม่ตรงกัน"); return; }
-    await persistAdminPassword(newPw);
-    setMsg("เปลี่ยนรหัสผ่านสำเร็จ");
-    setNewPw(""); setConfirmPw("");
-  };
-
-  return (
-    <div className="tc-panel" style={{ padding: "20px 24px", maxWidth: 380 }}>
-      <h3 style={{ margin: "0 0 16px", fontSize: 15, color: "#f4d160" }}>เปลี่ยนรหัสผ่าน Admin</h3>
-      <label className="tc-label">รหัสผ่านใหม่</label>
-      <input className="tc-input" type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} style={{ marginBottom: 12 }} />
-      <label className="tc-label">ยืนยันรหัสผ่าน</label>
-      <input className="tc-input" type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} style={{ marginBottom: 14 }} />
-      {msg && <p style={{ color: msg.includes("สำเร็จ") ? "#7cff6b" : "#ff8a73", fontSize: 12.5, marginBottom: 12 }}>{msg}</p>}
-      <button className="tc-btn tc-btn-primary" onClick={save} style={{ width: "100%" }}>บันทึก</button>
     </div>
   );
 }
