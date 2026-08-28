@@ -994,25 +994,31 @@ function HistoryTab({ members, sessions }) {
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
-      <div className="tc-panel" style={{ padding: "18px 24px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 12, alignItems: "end" }}>
-          <div>
+      <div className="tc-panel" style={{ padding: "20px 24px" }}>
+        
+        {/* ปรับส่วน Filter ตรงนี้ */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
+          <div style={{ flex: "1 1 200px" }}>
             <label className="tc-label">ค้นหาสมาชิก</label>
             <select className="tc-select" value={memberFilter} onChange={(e) => setMemberFilter(e.target.value)}>
               <option value="">ทุกคน</option>
               {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           </div>
-          <div>
+          <div style={{ flex: "1 1 200px" }}>
             <label className="tc-label">วันที่</label>
             <input
               className="tc-input"
               type="date"
+              value={dateFilter}
               onChange={(e) => setDateFilter(e.target.value)}
             />
           </div>
-          <button className="tc-btn tc-btn-sm" onClick={() => { setMemberFilter(""); setDateFilter(""); }}>ล้างตัวกรอง</button>
+          <button className="tc-btn tc-btn-sm" onClick={() => { setMemberFilter(""); setDateFilter(""); }}>
+            ล้างตัวกรอง
+          </button>
         </div>
+
       </div>
 
       {dateKeys.length === 0 ? (
