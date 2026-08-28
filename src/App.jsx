@@ -175,45 +175,46 @@ const GlobalStyle = () => (
       pointer-events: none;
     }
 
-    .tc-btn {
-      font-family: 'Kanit', sans-serif;
-      font-weight: 600;
-      letter-spacing: 0.03em;
-      border-radius: 10px;
-      border: 1px solid var(--gold);
-      background: linear-gradient(180deg, rgba(212,175,55,0.18), rgba(212,175,55,0.04));
-      color: var(--gold-bright);
-      padding: 12px 20px;
-      cursor: pointer;
-      transition: all 0.18s ease;
-    }
-    .tc-btn:hover:not(:disabled) {
-      background: linear-gradient(180deg, rgba(255,230,0,0.28), rgba(255,230,0,0.06));
-      box-shadow: 0 0 18px var(--neon-soft), 0 0 2px var(--neon);
-      color: #fff8d6;
-      transform: translateY(-1px);
-    }
-    .tc-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .tc-btn-primary {
-      background: linear-gradient(180deg, var(--neon), #c9a900);
-      color: #1a1400;
-      border: 1px solid var(--neon);
-      box-shadow: 0 0 24px var(--neon-soft);
-      font-weight: 700;
-    }
-    .tc-btn-primary:hover:not(:disabled) {
-      box-shadow: 0 0 34px var(--neon), 0 0 10px #fff6b0;
-      transform: translateY(-1px);
-    }
-    .tc-btn-danger {
-      border-color: var(--danger);
-      color: #ffb3a3;
-    }
-    .tc-btn-danger:hover:not(:disabled) {
-      box-shadow: 0 0 18px rgba(227,84,63,0.45);
-      color: #fff;
-    }
-    .tc-btn-sm { padding: 6px 12px; font-size: 0.8rem; border-radius: 8px; }
+    /* คัดลอกส่วนนี้ไปทับ .tc-btn, .tc-input, .tc-select ใน GlobalStyle */
+
+.tc-btn {
+  font-family: 'Kanit', sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  border-radius: 10px;
+  border: 1px solid var(--gold);
+  background: linear-gradient(180deg, rgba(212,175,55,0.18), rgba(212,175,55,0.04));
+  color: var(--gold-bright);
+  padding: 0 20px;
+  height: 44px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.tc-input, .tc-select {
+  font-family: 'Kanit', sans-serif;
+  background: #0a0806;
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 0 14px;
+  height: 44px;
+  box-sizing: border-box;
+  outline: none;
+  width: 100%;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.tc-btn-sm { 
+  height: 44px; 
+  padding: 0 16px; 
+  font-size: 0.85rem; 
+  border-radius: 10px; 
+}
 
     .tc-input, .tc-select {
       font-family: 'Kanit', sans-serif;
@@ -899,14 +900,16 @@ function MembersTab({ members, addMember: createMember, updateMember }) {
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
-      <div className="tc-panel" style={{ padding: "20px 24px" }}>
+      <div className="tc-panel" style={{ padding: "24px" }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 15, color: "#f4d160" }}>เพิ่มสมาชิกใหม่</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1.4fr 1fr auto", gap: 12, alignItems: "end" }}>
-          <div>
+        
+        {/* ปรับ Layout ตรงนี้ให้สมดุล */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
+          <div style={{ flex: "2 1 180px" }}>
             <label className="tc-label">ชื่อ</label>
             <input className="tc-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="เช่น นาย A" />
           </div>
-          <div>
+          <div style={{ flex: "1.5 1 140px" }}>
             <label className="tc-label">ตำแหน่ง</label>
             <select className="tc-select" value={position} onChange={(e) => setPosition(e.target.value)}>
               <option>สมาชิกสภา</option>
@@ -915,11 +918,13 @@ function MembersTab({ members, addMember: createMember, updateMember }) {
               <option>รองประธานสภา</option>
             </select>
           </div>
-          <div>
+          <div style={{ flex: "1 1 100px" }}>
             <label className="tc-label">PIN</label>
             <input className="tc-input" inputMode="numeric" maxLength={6} value={pin} onChange={(e) => setPin(e.target.value)} placeholder="4-6 หลัก" />
           </div>
-          <button className="tc-btn tc-btn-primary" disabled={busy} onClick={addMember}>เพิ่มสมาชิก</button>
+          <button className="tc-btn tc-btn-primary" disabled={busy} onClick={addMember} style={{ minWidth: 120 }}>
+            เพิ่มสมาชิก
+          </button>
         </div>
         {error && <p style={{ color: "#ff8a73", fontSize: 12.5, marginTop: 10 }}>{error}</p>}
       </div>
