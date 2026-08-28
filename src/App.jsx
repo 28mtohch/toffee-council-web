@@ -10,10 +10,9 @@ import { createClient } from "@supabase/supabase-js";
 const DEFAULT_ADMIN_PASSWORD = "council2026";
 
 const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
+  "https://vdkyemtnzjsqwxozthoz.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZka3llbXRuempzcXd4b3p0aG96Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4NTExMjAsImV4cCI6MjEwMzQyNzEyMH0.9qY4GBd0MCGqlsfhNjJ9L4AteiC-5PyGCo2JeEjuz7A"
 );
-
 function pad(n) {
   return String(n).padStart(2, "0");
 }
