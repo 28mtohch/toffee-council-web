@@ -1,3 +1,4 @@
+import { supabase } from './supabaseClient'
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -10,9 +11,10 @@ import { createClient } from "@supabase/supabase-js";
 const DEFAULT_ADMIN_PASSWORD = "council2026";
 
 const supabase = createClient(
-  "https://vdkyemtnzjsqwxozthoz.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZka3llbXRuempzcXd4b3p0aG96Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4NTExMjAsImV4cCI6MjEwMzQyNzEyMH0.9qY4GBd0MCGqlsfhNjJ9L4AteiC-5PyGCo2JeEjuz7A"
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
 );
+
 function pad(n) {
   return String(n).padStart(2, "0");
 }
@@ -175,46 +177,45 @@ const GlobalStyle = () => (
       pointer-events: none;
     }
 
-    /* คัดลอกส่วนนี้ไปทับ .tc-btn, .tc-input, .tc-select ใน GlobalStyle */
-
-.tc-btn {
-  font-family: 'Kanit', sans-serif;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  border-radius: 10px;
-  border: 1px solid var(--gold);
-  background: linear-gradient(180deg, rgba(212,175,55,0.18), rgba(212,175,55,0.04));
-  color: var(--gold-bright);
-  padding: 0 20px;
-  height: 44px;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.18s ease;
-}
-
-.tc-input, .tc-select {
-  font-family: 'Kanit', sans-serif;
-  background: #0a0806;
-  border: 1px solid var(--line);
-  color: var(--text);
-  border-radius: 10px;
-  padding: 0 14px;
-  height: 44px;
-  box-sizing: border-box;
-  outline: none;
-  width: 100%;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.tc-btn-sm { 
-  height: 44px; 
-  padding: 0 16px; 
-  font-size: 0.85rem; 
-  border-radius: 10px; 
-}
+    .tc-btn {
+      font-family: 'Kanit', sans-serif;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      border-radius: 10px;
+      border: 1px solid var(--gold);
+      background: linear-gradient(180deg, rgba(212,175,55,0.18), rgba(212,175,55,0.04));
+      color: var(--gold-bright);
+      padding: 12px 20px;
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }
+    .tc-btn:hover:not(:disabled) {
+      background: linear-gradient(180deg, rgba(255,230,0,0.28), rgba(255,230,0,0.06));
+      box-shadow: 0 0 18px var(--neon-soft), 0 0 2px var(--neon);
+      color: #fff8d6;
+      transform: translateY(-1px);
+    }
+    .tc-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .tc-btn-primary {
+      background: linear-gradient(180deg, var(--neon), #c9a900);
+      color: #1a1400;
+      border: 1px solid var(--neon);
+      box-shadow: 0 0 24px var(--neon-soft);
+      font-weight: 700;
+    }
+    .tc-btn-primary:hover:not(:disabled) {
+      box-shadow: 0 0 34px var(--neon), 0 0 10px #fff6b0;
+      transform: translateY(-1px);
+    }
+    .tc-btn-danger {
+      border-color: var(--danger);
+      color: #ffb3a3;
+    }
+    .tc-btn-danger:hover:not(:disabled) {
+      box-shadow: 0 0 18px rgba(227,84,63,0.45);
+      color: #fff;
+    }
+    .tc-btn-sm { padding: 6px 12px; font-size: 0.8rem; border-radius: 8px; }
 
     .tc-input, .tc-select {
       font-family: 'Kanit', sans-serif;
@@ -900,16 +901,14 @@ function MembersTab({ members, addMember: createMember, updateMember }) {
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
-      <div className="tc-panel" style={{ padding: "24px" }}>
+      <div className="tc-panel" style={{ padding: "20px 24px" }}>
         <h3 style={{ margin: "0 0 16px", fontSize: 15, color: "#f4d160" }}>เพิ่มสมาชิกใหม่</h3>
-        
-        {/* ปรับ Layout ตรงนี้ให้สมดุล */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
-          <div style={{ flex: "2 1 180px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1.4fr 1fr auto", gap: 12, alignItems: "end" }}>
+          <div>
             <label className="tc-label">ชื่อ</label>
             <input className="tc-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="เช่น นาย A" />
           </div>
-          <div style={{ flex: "1.5 1 140px" }}>
+          <div>
             <label className="tc-label">ตำแหน่ง</label>
             <select className="tc-select" value={position} onChange={(e) => setPosition(e.target.value)}>
               <option>สมาชิกสภา</option>
@@ -918,13 +917,11 @@ function MembersTab({ members, addMember: createMember, updateMember }) {
               <option>รองประธานสภา</option>
             </select>
           </div>
-          <div style={{ flex: "1 1 100px" }}>
+          <div>
             <label className="tc-label">PIN</label>
             <input className="tc-input" inputMode="numeric" maxLength={6} value={pin} onChange={(e) => setPin(e.target.value)} placeholder="4-6 หลัก" />
           </div>
-          <button className="tc-btn tc-btn-primary" disabled={busy} onClick={addMember} style={{ minWidth: 120 }}>
-            เพิ่มสมาชิก
-          </button>
+          <button className="tc-btn tc-btn-primary" disabled={busy} onClick={addMember}>เพิ่มสมาชิก</button>
         </div>
         {error && <p style={{ color: "#ff8a73", fontSize: 12.5, marginTop: 10 }}>{error}</p>}
       </div>
@@ -994,31 +991,25 @@ function HistoryTab({ members, sessions }) {
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
-      <div className="tc-panel" style={{ padding: "20px 24px" }}>
-        
-        {/* ปรับส่วน Filter ตรงนี้ */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
-          <div style={{ flex: "1 1 200px" }}>
+      <div className="tc-panel" style={{ padding: "18px 24px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 12, alignItems: "end" }}>
+          <div>
             <label className="tc-label">ค้นหาสมาชิก</label>
             <select className="tc-select" value={memberFilter} onChange={(e) => setMemberFilter(e.target.value)}>
               <option value="">ทุกคน</option>
               {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           </div>
-          <div style={{ flex: "1 1 200px" }}>
+          <div>
             <label className="tc-label">วันที่</label>
             <input
               className="tc-input"
               type="date"
-              value={dateFilter}
               onChange={(e) => setDateFilter(e.target.value)}
             />
           </div>
-          <button className="tc-btn tc-btn-sm" onClick={() => { setMemberFilter(""); setDateFilter(""); }}>
-            ล้างตัวกรอง
-          </button>
+          <button className="tc-btn tc-btn-sm" onClick={() => { setMemberFilter(""); setDateFilter(""); }}>ล้างตัวกรอง</button>
         </div>
-
       </div>
 
       {dateKeys.length === 0 ? (
