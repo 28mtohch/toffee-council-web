@@ -1,6 +1,5 @@
 import { supabase } from './supabaseClient'
 import { useState, useEffect, useRef, useCallback } from "react";
-import { createClient } from "@supabase/supabase-js";
 
 /* ---------------------------------------------------------
    TOFFEE COUNCIL — ระบบเข้าเวรสภา
@@ -9,11 +8,6 @@ import { createClient } from "@supabase/supabase-js";
 --------------------------------------------------------- */
 
 const DEFAULT_ADMIN_PASSWORD = "council2026";
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
 
 function pad(n) {
   return String(n).padStart(2, "0");
